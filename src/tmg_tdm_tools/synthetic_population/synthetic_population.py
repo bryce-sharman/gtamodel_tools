@@ -218,7 +218,7 @@ class SyntheticPopulation():
         return sa.summarize_table_with_spatial_aggregation(
             df=pers_df, 
             values=weight_expr, 
-            zones=[enums_sp.HHLD_HOMEZONE_COL, 
+            geom_id=[enums_sp.HHLD_HOMEZONE_COL, 
                    enums_sp.PERS_WORKZONE_COL, 
                    enums_sp.PERS_SCHOOLZONE_COL
                 ],
