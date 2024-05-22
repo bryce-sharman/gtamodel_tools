@@ -29,44 +29,34 @@ def synthetic_population():
     )
 
 @pytest.fixture
-def synthetic_population_v0():
-    src_path = files(tmg_tdm_tools)
-    root_path = src_path.parents[1]
-    popsyn_testdata_path = \
-        root_path / "tests/test_data/synthetic_population/gtamodelv4_0"
-    households_path = popsyn_testdata_path / "households.csv"
-    persons_path = popsyn_testdata_path / "persons.csv"
-    yield SyntheticPopulation(
-        tmg_tdm_tools.ModelVersion.GTAModelv4_0, households_path, persons_path)
-
-@pytest.fixture
 def sa_model_region():
     yield create_spatial_aggregator(
         aggregation_type='model_region', 
         name='sa_model_region', 
-        tazs=pd.Series([1, 2, 3])
+        ids=pd.Series([1, 2, 3])
+    )
+
+
+@pytest.fixture
+def sa_1lvl_aggr_tazs():
+    index = pd.Index(pd.Series([1, 2, 3]), name='taz')
+    mapping = pd.Series(index=index, data=[1, 1, 2], name='mapping')
+    yield create_spatial_aggregator(
+        aggregation_type='one_level_mapping', 
+        name='sa_1_lvl_map_tazs',
+        lvl1_mapping=mapping
     )
 
 @pytest.fixture
-def sa_zoneaggr():
-    index = pd.Index(pd.Series([1, 2, 3]))
-    index.name = 'zone_aggregation'
-    yield create_spatial_aggregator(
-        aggregation_type='mapped_zones', 
-        name='sa_zone_region',
-        taz_mapping=pd.Series({1: 1, 2: 1, 3: 2})
-    )
-
-@pytest.fixture
-def sa_mappedcollection():
-    taz_mapping = pd.Series({1:1, 2:2, 3:3})
-    collection_mapping = pd.Series({1:1, 2:1, 3:2})
+def sa_2lvl_aggr_tazs():
+    lvl1_mapping = pd.Series({1:1, 2:2, 3:3})
+    lvl2_mapping = pd.Series({1:1, 2:1, 3:2})
 
     yield create_spatial_aggregator(
-        aggregation_type='mapped_collection',
-        name='sa_mappedcollection',
-        taz_mapping=taz_mapping,
-        collection_mapping=collection_mapping
+        aggregation_type='two_level_mapping',
+        name='sa_2lvl_aggr_tazs',
+        lvl1_mapping=lvl1_mapping,
+        lvl2_mapping=lvl2_mapping
     )
 
 
@@ -99,28 +89,30 @@ def test_total_households_spat_aggr_modelregion(
     tm.assert_frame_equal(df, ref_df)
 
 def test_total_households_spat_aggr_zonemapping(
-        synthetic_population, sa_zoneaggr):
+        synthetic_population, sa_1lvl_aggr_tazs):
     ref_df = pd.DataFrame(
-        index=pd.Index([1, 2], name='sa_zone_region'), 
-        columns=["total"], 
-        data=[143.2, 119.6], 
-        dtype=np.float32
-    )
-    ref_df.name = 'total_households'
-    df = summarize_total_households(synthetic_population, home_sa=sa_zoneaggr)
-    tm.assert_frame_equal(df, ref_df)
-
-def test_total_households_spat_aggr_mappedcollection(
-        synthetic_population, sa_mappedcollection):
-    ref_df = pd.DataFrame(
-        index=pd.Index([1, 2], name='sa_mappedcollection'), 
+        index=pd.Index([1, 2], name='sa_1_lvl_map_tazs'), 
         columns=["total"], 
         data=[143.2, 119.6], 
         dtype=np.float32
     )
     ref_df.name = 'total_households'
     df = summarize_total_households(
-        synthetic_population, home_sa=sa_mappedcollection)
+        synthetic_population, home_sa=sa_1lvl_aggr_tazs
+    )
+    tm.assert_frame_equal(df, ref_df)
+
+def test_total_households_spat_aggr_mappedcollection(
+        synthetic_population, sa_2lvl_aggr_tazs):
+    ref_df = pd.DataFrame(
+        index=pd.Index([1, 2], name='sa_2lvl_aggr_tazs'), 
+        columns=["total"], 
+        data=[143.2, 119.6], 
+        dtype=np.float32
+    )
+    ref_df.name = 'total_households'
+    df = summarize_total_households(
+        synthetic_population, home_sa=sa_2lvl_aggr_tazs)
     tm.assert_frame_equal(df, ref_df)
 #endregion
 
@@ -143,7 +135,6 @@ def test_household_dwelling_types_spat_aggr_none(
         dtype=np.float32
     )
     ref_df.name = 'households_by_dwellingtype'
-    print(ref_df)
     df = summarize_hhld_dwellingtype_distn(synthetic_population, home_sa=None)
     tm.assert_frame_equal(df, ref_df)
 #endregion
