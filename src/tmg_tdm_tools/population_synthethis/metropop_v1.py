@@ -421,8 +421,8 @@ class MetroPopV1Inputs():
 
     def summarize_forecast_zone_attributes_employment(
             self, 
-            segment_by_region: bool=False, 
-            ntwk_standard: str=""
+            home_sa: Type[sa.SpatialAggregator],
+            aggregation_base: str,  
         ) -> pd.Series | pd.DataFrame:
         """ Summarizes employment from the Scenario zone attributes input file.
 
@@ -430,44 +430,38 @@ class MetroPopV1Inputs():
         code in the zone attributes file.
         
         Args:
-            segment_by_region: 
-                if False, return total population for the model region
-                otherwise return population by model region.
-            ntwk_standard: 
-                GTA model network standard used to define zone IDS. 
-                Only used if segment_by_region is set to True. In this case, 
-                currently must be one of 'NCS11', 'NCS16' or 'NCS22'
+        home_sa: Subclass of sa.SpatialAggregator
+            Spatial aggregator. 
+        aggregation_base: str, must be either 'taz' or 'pd'
+            States if the aggregation is to be performed on the TAZ column or
+            on the planning district, which is defined in the input directory.
             
         Returns: 
-            if 'segment_by_region' is False, returns pandas.Series, 
-            which is employment by NAICS category throughout the model region
-            Otherwise returns pandas.DataFrame, which contains the employment, 
-            segmented by regions as the index and NAICS categories as the 
-            columns.
+        pandas.DataFrame
+            Employment segmented by regions as the index and NAICS categories as 
+            the columns.
 
         """
-        if not segment_by_region:
-            return self.scen_zone_attrs[empv1.ZA_EMP_COLS].sum()
+        if home_sa is None:
+            raise RuntimeError("'home_sa' must be defined.")
+        if aggregation_base  == 'taz':
+            df = self.scen_zone_attrs.copy()
+            zone_col = empv1.ZA_ZONEID
+        elif aggregation_base == 'pd':
+            df = self.scen_zone_attrs.merge(
+                self.zs[[self.PD_COLUMN]], 
+                how="left", 
+                left_index=True, 
+                right_index=True
+            )
+            zone_col = self.PD_COLUMN
         else:
-            if ntwk_standard  == 'NCS11':
-                zone_ranges = encs11.zone_ranges
-            elif ntwk_standard == 'NCS16':
-                zone_ranges = encs16.zone_ranges
-            elif ntwk_standard == 'NCS22':
-                zone_ranges = encs22.zone_ranges
-            else:
-                raise ValueError(
-                    "If 'segment_by_region' is True, then 'ntwk_standard' "
-                    "must be one of: 'NCS11', 'NCS16', 'NCS22'")
-            emp_df = self.scen_zone_attrs[empv1.ZA_EMP_COLS].copy()
-            emp_df['zone_range'] = ''
-            emp_df_index = emp_df.index
-            for zone_range, range_def in zone_ranges.items():
-                fltr = emp_df_index[
-                    (emp_df_index >= range_def['lower']) & 
-                    (emp_df_index < range_def['upper'])
-                ]
-                emp_df.loc[fltr, 'zone_range'] = zone_range
-            pt = emp_df.groupby('zone_range')[empv1.ZA_EMP_COLS].sum()
-            return pt
+            raise RuntimeError("'aggregation_base' must be 'taz' or 'pd'.")
+        return sa.summarize_table_with_spatial_aggregation(
+            df=df, 
+            values=empv1.ZA_EMP_COLS, 
+            geom_id=zone_col, 
+            spatial_aggregations=home_sa
+        )
+
 #endregion

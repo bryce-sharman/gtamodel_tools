@@ -207,7 +207,7 @@ def create_spatial_aggregator(
 
 def summarize_table_with_spatial_aggregation(    
         df: pd.DataFrame,
-        values: str,
+        values: str | List[str],
         geom_id: str | List[str],
         spatial_aggregations: Type[SpatialAggregator] | List[
             Type[SpatialAggregator] | None | False] | None, 
@@ -219,7 +219,7 @@ def summarize_table_with_spatial_aggregation(
     Args:
         df: panadas.DataFrame 
             Data on which to apply spatial aggregation
-        values: str
+        values: str, list[str]
             Mathematical expression to be evaluated, will be calculated 
             using pd.eval.
         geom_id: str or List[str]
@@ -242,8 +242,7 @@ def summarize_table_with_spatial_aggregation(
 
     """
     # Convert geographical aggregations and crosstab definitions to lists 
-    # if they are not already in this form. Doing this as list(x) isn't happy 
-    # with the spatial_aggregations object as it's not an iterable.
+    # if they are not already in this form.
     geom_id = geom_id if isinstance(geom_id, list) else [geom_id]
     spatial_aggregations = spatial_aggregations if isinstance(
         spatial_aggregations, list) else [spatial_aggregations]
@@ -284,13 +283,29 @@ def summarize_table_with_spatial_aggregation(
                 df[ct] = df[ct].map(cts)
             aggr_colnames.append(ct)
 
-    # Calculate the value which will be summed
-    df["_TEMP_VALUES_COL"] = df.eval(values, engine="numexpr")
-    pt = pd.pivot_table(df, 
-                        index=aggr_colnames, 
-                        values="_TEMP_VALUES_COL", 
-                        aggfunc="sum", 
-                        observed=True
-    )
-    pt.columns = ["total"]
+    if not isinstance(values, list):
+        # Summarizing a single variable or expression
+        temp_col = "_TEMP_VALUES_COL"
+        df[temp_col] = df.eval(values, engine="numexpr")
+        pt = pd.pivot_table(df, 
+                            index=aggr_colnames, 
+                            values=temp_col, 
+                            aggfunc="sum", 
+                            observed=True
+        )
+        pt.columns = [values]
+    else:
+        # Multiple variables or expressions to summarize
+        temp_cols = []
+        for i, value in enumerate(values):
+            temp_col = f"_TEMP_{i:03d}"
+            df[temp_col] = df.eval(value, engine="numexpr")
+            temp_cols.append(temp_col)
+        pt = pd.pivot_table(df, 
+                            index=aggr_colnames, 
+                            values=temp_cols, 
+                            aggfunc="sum", 
+                            observed=True
+        )
+        pt.columns = values
     return pt

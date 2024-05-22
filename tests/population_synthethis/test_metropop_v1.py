@@ -8,7 +8,7 @@ import pytest
 import tmg_tdm_tools
 from tmg_tdm_tools.population_synthethis.metropop_v1 import MetroPopV1Inputs
 from tmg_tdm_tools.common.spatial_aggregator import create_spatial_aggregator
-from tmg_tdm_tools.enums.population_synthesis.metropop_v1 import ZA_DTYPES, ZA_POP
+from tmg_tdm_tools.enums.population_synthesis.metropop_v1 import ZA_DTYPES, ZA_POP, ZA_EMP_COLS
 
 @pytest.fixture
 def metropop_v1():
@@ -46,7 +46,10 @@ def sa_1lvl_aggr_pds():
     # Note that due to zone mapping file changing PD3 to PD2, this is
     # equivalent to zone mapping {1: 1, 2: 2, 3: 2}
     index = pd.Index(pd.Series([1, 2]), name='pd')
-    mapping = pd.Series(index=index, data=[1, 2], name='mapping')
+    mapping = pd.Series(index=index, data=[1, 2], 
+                        name='mapping', 
+                        dtype=np.uint32
+    )
     yield create_spatial_aggregator(
         aggregation_type='one_level_mapping', 
         name='sa_1_lvl_map_pds',
@@ -70,7 +73,7 @@ def test_zone_population_spat_aggr_modelregion(metropop_v1, sa_model_region):
     """ Test population summary from zone attributes file. """
     ref_df = pd.DataFrame(
         index=pd.Index(['model_region'], name='sa_model_region'), 
-        columns=['total'], 
+        columns=['population'], 
         data=316, 
         dtype=ZA_DTYPES[ZA_POP]
     )
@@ -84,7 +87,7 @@ def test_zone_population_spat_aggr_1lvl1aggr_taz(
     """ Test population summary from zone attributes file. """
     ref_df = pd.DataFrame(
         index=pd.Index([1, 2], name='sa_1_lvl_map_tazs'), 
-        columns=['total'], 
+        columns=['population'], 
         data=[211, 105], 
         dtype=ZA_DTYPES[ZA_POP]
     )
@@ -93,12 +96,12 @@ def test_zone_population_spat_aggr_1lvl1aggr_taz(
     tm.assert_frame_equal(df, ref_df)
 
 
-def test_zone_population_spat_aggr_zoneaggr_pd(
+def test_zone_population_spat_aggr_1lvl1aggr_pd(
         metropop_v1, sa_1lvl_aggr_pds):
     """ Test population summary from zone attributes file. """
     ref_df = pd.DataFrame(
-        index=pd.Index([1, 2], name='sa_1_lvl_map_pds'), 
-        columns=['total'], 
+        index=pd.Index([1, 2], name='sa_1_lvl_map_pds', dtype=np.uint32), 
+        columns=['population'], 
         data=[126, 190],
         dtype=ZA_DTYPES[ZA_POP]
     )
@@ -107,9 +110,36 @@ def test_zone_population_spat_aggr_zoneaggr_pd(
     tm.assert_frame_equal(df, ref_df)
 
 
-@pytest.mark.skip(reason="not implemented")
-def test_zone_employment_spat_aggr_modelregion(metropop_v1):
-    assert 1 == 0  # Force failure for now
+def test_zone_employment_spat_aggr_modelregion(metropop_v1, sa_model_region):
+
+    ref_df = pd.DataFrame(
+        index=pd.Index(['model_region'], name='sa_model_region'),
+        columns=pd.Index(ZA_EMP_COLS),
+        data=[[6, 2, 3, 4, 5, 6, 15, 9, 11, 9, 8, 10, 12,
+              10, 13, 15, 14, 14, 8, 6]],
+        dtype=np.float32
+    )
+    print(ref_df)
+
+    df = metropop_v1.summarize_forecast_zone_attributes_employment(
+        sa_model_region, 'taz')
+    print(df)
+    tm.assert_frame_equal(df, ref_df)
+
+def test_zone_employment_spat_aggr_1lvl1aggr_pd(metropop_v1, sa_1lvl_aggr_pds):
+
+    ref_df = pd.DataFrame(
+        index=pd.Index([1, 2], name='sa_1_lvl_map_pds', dtype=np.uint32),
+        columns=pd.Index(ZA_EMP_COLS),
+        data=[
+            [0, 0, 0, 0, 0, 0, 8, 1, 2, 3, 1, 2, 3, 0, 2, 3, 1, 0, 3, 1],
+            [6, 2, 3, 4, 5, 6, 7, 8, 9, 6, 7, 8, 9, 10, 11, 12, 13, 14, 5, 5]
+        ],
+        dtype=np.float32
+    )
+    df = metropop_v1.summarize_forecast_zone_attributes_employment(
+        sa_1lvl_aggr_pds, 'pd')
+    tm.assert_frame_equal(df, ref_df)
 
 
 @pytest.mark.skip(reason="not implented")

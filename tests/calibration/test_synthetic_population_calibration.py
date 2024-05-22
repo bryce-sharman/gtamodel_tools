@@ -67,7 +67,7 @@ def test_total_households_spat_aggr_none(synthetic_population):
     ref_index.name = 'home_zone'
     ref_df = pd.DataFrame(
         index=ref_index, 
-        columns=["total"], 
+        columns=["weight"], 
         data=[55.6, 87.6, 119.6], 
         dtype=HOUSEHOLD_DTYPES['weight']
     )
@@ -79,7 +79,7 @@ def test_total_households_spat_aggr_modelregion(
         synthetic_population, sa_model_region):
     ref_df = pd.DataFrame(
         index=pd.Index(['model_region'], name='sa_model_region'), 
-        columns=["total"], 
+        columns=["weight"], 
         data=[262.8], 
         dtype=HOUSEHOLD_DTYPES['weight']
     )
@@ -92,7 +92,7 @@ def test_total_households_spat_aggr_zonemapping(
         synthetic_population, sa_1lvl_aggr_tazs):
     ref_df = pd.DataFrame(
         index=pd.Index([1, 2], name='sa_1_lvl_map_tazs'), 
-        columns=["total"], 
+        columns=["weight"], 
         data=[143.2, 119.6], 
         dtype=np.float32
     )
@@ -106,7 +106,7 @@ def test_total_households_spat_aggr_mappedcollection(
         synthetic_population, sa_2lvl_aggr_tazs):
     ref_df = pd.DataFrame(
         index=pd.Index([1, 2], name='sa_2lvl_aggr_tazs'), 
-        columns=["total"], 
+        columns=["weight"], 
         data=[143.2, 119.6], 
         dtype=np.float32
     )
@@ -129,7 +129,7 @@ def test_household_dwelling_types_spat_aggr_none(
         names=["home_zone", "dwelling_type"])
     ref_df = pd.DataFrame(
         index=ref_index,
-        columns=["total"], 
+        columns=["weight"], 
         data=[38.7, 13.36, 3.54, 9.2, 55.9, 14.82, 
               7.68, 38.22, 35.88, 32.1, 13.4],
         dtype=np.float32
