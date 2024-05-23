@@ -105,13 +105,13 @@ HHLDCNTRLS_DTYPES = {
     HHLDCNTRLS_FREQ: np.float32
 }
 PERSCNTRLS_PD = 'PD'
-PERSCNTRLS_DWELLILNGTYPE = 'DwellingType'
+PERSCNTRLS_DWELLINGTYPE = 'DwellingType'
 PERSCNTRLS_SEX = 'Sex'
 PERSCENTRS_AGEGROUP = 'AgeGroup'
 PERSCNTRLS_FREQ = 'Frequency'
 PERSCNTRLS_DTYPES = {
     PERSCNTRLS_PD: np.float32,   # accepts float PDs  
-    PERSCNTRLS_DWELLILNGTYPE: pd.CategoricalDtype(categories=[1, 2], ordered=False),
+    PERSCNTRLS_DWELLINGTYPE: pd.CategoricalDtype(categories=[1, 2], ordered=False),
     PERSCNTRLS_SEX: pd.CategoricalDtype(categories=['F', 'M', '9'], ordered=False),
     PERSCENTRS_AGEGROUP: pd.CategoricalDtype(categories=IPU_AGE_SEGMENTS.keys(), ordered=False),
     PERSCNTRLS_FREQ: np.float32

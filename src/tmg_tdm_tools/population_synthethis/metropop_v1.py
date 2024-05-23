@@ -243,7 +243,8 @@ class MetroPopV1Inputs():
         avg_cell = numerator.divide(denominator, axis=0)
 
         # Overwrite where insufficient seeds, only segmenting by household type
-        # Recalculate mean household sizes by age category, this time only segmenting by household type
+        # Recalculate mean household sizes by age category, 
+        # this time only segmenting by household type
         numerator = df.groupby(
             [empv1.SD_HHLD_HHLDTYPE], observed=False)[[
                 'exp_adult', 'exp_senior', 'exp_child']].sum()
@@ -309,17 +310,28 @@ class MetroPopV1Inputs():
             index: planning districts, dwelling type
             columns: 'child', 'adult', 'senior'
         """
-        # Using the seed file, we can calculate the expected number of children, adults and seniors 
-        # by housetype, dwelling type and PDGroup. Merge into the HHLD control file
-        exp_hhld_sizes = self.calculate_expected_hhld_sizes_by_dtype_from_seeds(seed_segmentation_min_entries)
-        df = self.scen_hhld_controls.merge(exp_hhld_sizes, left_on=[empv1.HHLDCNTRLS_HHLDTYPE, empv1.HHLDCNTRLS_DWELLINGTYPE, empv1.PDGR_PDGROUP], right_index=True)
+        # Using the seed file, we can calculate the expected number of children, 
+        # adults and seniors by housetype, dwelling type and PDGroup. 
+        # Merge into the HHLD control file
+        exp_hhld_sizes = self.calculate_expected_hhld_sizes_by_dtype_from_seeds(
+            seed_segmentation_min_entries)
+        df = self.scen_hhld_controls.merge(
+            exp_hhld_sizes, 
+            left_on=[empv1.HHLDCNTRLS_HHLDTYPE, empv1.HHLDCNTRLS_DWELLINGTYPE, 
+                     empv1.PDGR_PDGROUP], 
+            right_index=True
+        )
         df['exp_adult'] = df[empv1.HHLDCNTRLS_FREQ] * df['adult']
         df['exp_child'] = df[empv1.HHLDCNTRLS_FREQ] * df['child']
         df['exp_senior'] = df[empv1.HHLDCNTRLS_FREQ] * df['senior']
         if add_dwellingtype_segmentation:
-            pt = df.groupby([empv1.HHLDCNTRLS_PD, empv1.HHLDCNTRLS_DWELLINGTYPE], observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
+            pt = df.groupby(
+                [empv1.HHLDCNTRLS_PD, empv1.HHLDCNTRLS_DWELLINGTYPE], 
+                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
         else:
-            pt = df.groupby(empv1.HHLDCNTRLS_PD, observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
+            pt = df.groupby(
+                empv1.HHLDCNTRLS_PD, 
+                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
         pt['total'] = pt.sum(axis=1)
         pt['child'] = pt['exp_child'] / pt['total']
         pt['adult'] = pt['exp_adult'] / pt['total']
@@ -365,7 +377,7 @@ class MetroPopV1Inputs():
         df['exp_senior'] = df[empv1.PERSCNTRLS_FREQ] * df['is_senior']
         if add_dwellingtype_segmentation:
             pt = df.groupby(
-                [empv1.PERSCNTRLS_PD, empv1.PERSCNTRLS_DWELLILNGTYPE], 
+                [empv1.PERSCNTRLS_PD, empv1.PERSCNTRLS_DWELLINGTYPE], 
                 observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
         else:
             pt = df.groupby(

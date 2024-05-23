@@ -8,7 +8,8 @@ import pytest
 import tmg_tdm_tools
 from tmg_tdm_tools.population_synthethis.metropop_v1 import MetroPopV1Inputs
 from tmg_tdm_tools.common.spatial_aggregator import create_spatial_aggregator
-from tmg_tdm_tools.enums.population_synthesis.metropop_v1 import ZA_DTYPES, ZA_POP, ZA_EMP_COLS
+from tmg_tdm_tools.enums.population_synthesis.metropop_v1 import ZA_DTYPES, \
+    ZA_POP, ZA_EMP_COLS, PERSCNTRLS_DTYPES, PERSCNTRLS_DWELLINGTYPE
 
 @pytest.fixture
 def metropop_v1():
@@ -142,16 +143,60 @@ def test_zone_employment_spat_aggr_1lvl1aggr_pd(metropop_v1, sa_1lvl_aggr_pds):
     tm.assert_frame_equal(df, ref_df)
 
 
+def test_forecast_perscontrols_summary_nodtypes(metropop_v1):
+    # Reference data taken from calculation done in Excel
+    ref_df = pd.DataFrame(
+        index=pd.Index([1, 2], dtype=np.float32, name='PD'),
+        columns=['child', 'adult', 'senior'],
+        data=[
+            [0.305555556, 0.555555556, 0.138888889],
+            [0.151020408, 0.702040816, 0.146938776]
+        ]
+    )
+
+    df = metropop_v1.summarize_forecast_perscontrols(
+        add_dwellingtype_segmentation=False
+    )
+    tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
+
+def test_forecast_perscontrols_summary_withdtypes(metropop_v1):
+    # Reference data taken from calculation done in Excel
+    ref_df = pd.DataFrame(
+        index=pd.MultiIndex.from_arrays([
+                pd.Series([1, 1, 2, 2], dtype=np.float32), 
+                pd.Series([1, 2, 1, 2], dtype=PERSCNTRLS_DTYPES[
+                    PERSCNTRLS_DWELLINGTYPE])
+            ], 
+            names=['PD', 'DwellingType']
+        ),
+        columns=['child', 'adult', 'senior'],
+        data=[[0.305555556, 0.555555556, 0.138888889],
+              [0.305555556, 0.555555556, 0.138888889],
+              [0.149700599, 0.718562874, 0.131736527],
+              [0.153846154, 0.666666667, 0.179487179]
+        ]
+    )
+
+    df = metropop_v1.summarize_forecast_perscontrols(
+        add_dwellingtype_segmentation=True
+    )
+    tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
+
 @pytest.mark.skip(reason="not implented")
 def test_summarize_number_of_seeds_by_hhld_ipu_segment(self) -> pd.Series:
+
     assert 1 == 0  # Force failure for now
 
 
 @pytest.mark.skip(reason="not implented")
-def test_forecast_hhldcontrols_summary(metropop_v1):
-    assert 1 == 0  # Force failure for now
+def test_forecast_hhldcontrols_summary_nodtypes(metropop_v1):
+    metropop_v1.summarize_forecast_hhldcontrols(False, 10)
+
+@pytest.mark.skip(reason="not implented")
+def test_forecast_hhldcontrols_summary_withdtypes(metropop_v1):
+    metropop_v1.summarize_forecast_hhldcontrols(False, 10)
+
+
 
    
-@pytest.mark.skip(reason="not implented")
-def test_forecast_perscontrols_summary(metropop_v1):
-    assert 1 == 0  # Force failure for now
+
