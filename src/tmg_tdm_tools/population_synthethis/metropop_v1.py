@@ -150,28 +150,34 @@ class MetroPopV1Inputs():
 
         """
         # Prepare a full index for the household and person summaries
-        idx_hhldtype = (np.sort(self.seeds[empv1.SD_HHLD_HHLDTYPE].unique()))
-        idx_dwellingtype = np.sort(
-            self.seeds[empv1.SD_HHLD_DWELLINGTYPE].unique())
-        idx_pdgroups = np.sort(self.seeds[empv1.PDGR_PDGROUP].unique())
+        idx_hhldtype = pd.Series(
+            np.sort(self.seeds[empv1.SD_HHLD_HHLDTYPE].unique()),
+            dtype=empv1.SD_DTYPES[empv1.SD_HHLD_HHLDTYPE])
+        idx_dwellingtype = pd.Series(
+            np.sort(self.seeds[empv1.SD_HHLD_DWELLINGTYPE].unique()),
+            dtype=empv1.SD_DTYPES[empv1.SD_HHLD_DWELLINGTYPE])
+        idx_pdgroups = pd.Series(
+            np.sort(self.seeds[empv1.PDGR_PDGROUP].unique()),
+            dtype=empv1.PDGR_DTYPES[empv1.PDGR_PDGROUP])
         idx_hhldsegments = pd.MultiIndex.from_product(
             [idx_hhldtype, idx_dwellingtype, idx_pdgroups], 
             names=['HhldType', 'DwellingType', 'PDGroup']
         )
-
         # For the households, keep only one entry for each household.
         hhld_df = self.seeds.groupby(empv1.SD_HHLD_ID)[
             [empv1.SD_HHLD_HHLDTYPE, 
              empv1.SD_HHLD_DWELLINGTYPE, 
              empv1.PDGR_PDGROUP]
             ].first()
-        hhld_df['one'] = 1.0
+        hhld_df['one'] = 1
+
         hhld_pt = hhld_df.groupby(
             [empv1.SD_HHLD_HHLDTYPE, 
              empv1.SD_HHLD_DWELLINGTYPE, 
              empv1.PDGR_PDGROUP
             ], sort=True, observed=False)['one'].sum()
         final = hhld_pt.reindex(idx_hhldsegments, axis=0, fill_value=np.NaN)
+        final = final.astype(np.uint32)
         return final
 
     def calculate_expected_hhld_sizes_by_dtype_from_seeds(
@@ -179,17 +185,21 @@ class MetroPopV1Inputs():
             min_entries: int
         ) -> pd.DataFrame:
         """ Find expected adults, seniors & children by IPU segment from seeds.
-         
-        IPU segmentation is by household type, dwelling type and PD Group .
-
-        If number of (unexpanded) seed households for any combination of 
-        household type, dwelling type and PD Group is below min_entries, then 
-        calculation will be recomputed only by household type.
 
         This function was created as many housing types are specified as a 
         minimum number of people, e.g. 2+. Calculating representative sizes for 
         these types is key when summarizing inputs from the households input 
         file.
+
+        IPU segmentation is by household type, dwelling type and PD Group .
+        If number of (unexpanded) seed households for any combination of 
+        household type, dwelling type and PD Group is below min_entries, then 
+        calculation will be recomputed only by household type.
+
+        Note:
+        Calculations use unexpanded household seeds. This is intentional
+        as it is expected that the expansion factors are not calcuated
+        at this level of detail.
 
         Args:
         min_entries: integer
@@ -204,15 +214,9 @@ class MetroPopV1Inputs():
             and children (0-17), respectively.
 
         """
-        df_hhlds = self.seeds.groupby(empv1.SD_HHLD_ID)[[
-            empv1.SD_HHLD_HHLDTYPE, 
-            empv1.SD_HHLD_DWELLINGTYPE, 
-            empv1.PDGR_PDGROUP, 
-            empv1.SD_HHLD_EXPFACTOR
-        ]].first()
-
         # Define adults, seniors and children
         df = self.seeds.copy()
+        df['one'] = 1
         df['is_adult'] = 0
         df['is_senior'] = 0
         df['is_child'] = 0
@@ -220,26 +224,31 @@ class MetroPopV1Inputs():
                (df[empv1.SD_PERS_AGE] <= 64), 'is_adult'] = 1
         df.loc[df[empv1.SD_PERS_AGE] >= 65, 'is_senior'] = 1
         df.loc[df[empv1.SD_PERS_AGE] <= 17, 'is_child'] = 1
-        df['exp_adult'] = df[empv1.SD_HHLD_EXPFACTOR] * df['is_adult']
-        df['exp_senior'] = df[empv1.SD_HHLD_EXPFACTOR] * df['is_senior']
-        df['exp_child'] = df[empv1.SD_HHLD_EXPFACTOR] * df['is_child']
+
+        # Calculate the number of households by segment
+        df_hhlds = df.groupby(empv1.SD_HHLD_ID)[[
+            empv1.SD_HHLD_HHLDTYPE, 
+            empv1.SD_HHLD_DWELLINGTYPE, 
+            empv1.PDGR_PDGROUP, 
+            'one'
+        ]].first()
 
         # Calculate the number of people per cell by age segment
         numerator = df.groupby([
             empv1.SD_HHLD_HHLDTYPE, 
             empv1.SD_HHLD_DWELLINGTYPE, 
             empv1.PDGR_PDGROUP
-        ], observed=False)[['exp_adult', 'exp_senior', 'exp_child']].sum()
+        ], observed=False)[['is_adult', 'is_senior', 'is_child']].sum()
         numerator = numerator.rename(
-            {'exp_adult': 'adult', 
-             'exp_senior': 'senior', 
-             'exp_child': 'child'
+            {'is_adult': 'adult', 
+             'is_senior': 'senior', 
+             'is_child': 'child'
             }, axis=1)
         denominator = df_hhlds.groupby([
             empv1.SD_HHLD_HHLDTYPE, 
             empv1.SD_HHLD_DWELLINGTYPE, 
             empv1.PDGR_PDGROUP
-        ], observed=False)[empv1.SD_HHLD_EXPFACTOR].sum()
+        ], observed=False)['one'].sum()
         avg_cell = numerator.divide(denominator, axis=0)
 
         # Overwrite where insufficient seeds, only segmenting by household type
@@ -247,15 +256,14 @@ class MetroPopV1Inputs():
         # this time only segmenting by household type
         numerator = df.groupby(
             [empv1.SD_HHLD_HHLDTYPE], observed=False)[[
-                'exp_adult', 'exp_senior', 'exp_child']].sum()
+                'is_adult', 'is_senior', 'is_child']].sum()
         numerator = numerator.rename(
-            {'exp_adult': 'adult', 
-             'exp_senior': 'senior', 
-             'exp_child': 'child'
+            {'is_adult': 'adult', 
+             'is_senior': 'senior', 
+             'is_child': 'child'
             }, axis=1)
         denominator = df_hhlds.groupby(
-            [empv1.SD_HHLD_HHLDTYPE], 
-            observed=False)[empv1.SD_HHLD_EXPFACTOR].sum()
+            [empv1.SD_HHLD_HHLDTYPE], observed=False)['one'].sum()
         avg_cell_hhtypeonly = numerator.divide(denominator, axis=0)
 
         # Overwrite where filter is true
@@ -263,9 +271,10 @@ class MetroPopV1Inputs():
         min_hhlds_per_cell = n_hhldseeds_cell.unstack(
             [-2, -1], fill_value=0).min(axis=1)
         fltr = min_hhlds_per_cell.loc[(min_hhlds_per_cell < min_entries)].index
-        print(f"The following household types have insufficient records for "
-              f"full segmentation {fltr}. "
-              f"Only segmenting these using household type")
+        if len(fltr) > 0:
+            print(f"The following household types have insufficient records "
+                f"for full segmentation {fltr}. "
+                f"Only segmenting these using household type")
         
         # We need to overwrite the values in avg_cell when insufficient records 
         # are unavailable. This is a bit tricky as we are writing from a 

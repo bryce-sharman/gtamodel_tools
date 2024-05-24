@@ -98,7 +98,7 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
                 "`ids` and `ranges` parameters."
             )
         index = pd.Index(ids)
-        s = pd.Series(index=index, data=np.NaN, name=name)
+        s = pd.Series(index=index, data="", name=name)
         for r0, r1, r2 in ranges:
             r_label = r0
             r_min = r1
