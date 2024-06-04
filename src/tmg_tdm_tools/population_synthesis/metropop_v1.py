@@ -485,4 +485,49 @@ class MetroPopV1Inputs():
             spatial_aggregations=home_sa
         )
 
+    def develop_future_personcontrols_frequencies(
+            df: pd.DataFrame,
+            base_age_pyramid: pd.Series,
+            future_age_pyramid: pd.Series,
+            filter: str | None,
+        ) -> pd.DataFrame:
+        """ Develop future PersonControls file, modifying age pyramid.
+
+        The PersonControls file contains the age pyramid showing the proportion
+        of the population by age group, segmented by planning district and
+        dwelling type.
+
+        This method accepts the contents of a PersonsControl table 
+        (this is done to allow chaining modifications), and modifies 
+        the PersonControls table based on the differences between the 
+        external base and forecast age pyramids, which are assumed to 
+        be provided by another data source.
+
+        Args:
+        df: pandas.DataFrame
+            Input PersonControls file as a pandas DataFrame 
+        base_age_pyramid: pd.Series
+            Either the proportion or number (total scale is not important)
+            of people living in each age category, which must match those 
+            used in the PersonsControl file, in the base year. 
+        future_age_pyramid: pd.Series
+            Either the proportion or number (total scale is not important)
+            of people living in each age category, which must match those 
+            used in the PersonsControl file, in the forecast year.
+        filter: str
+            Optional filter of records in the file to modify. Must
+            be based on the PD, DwellingType or Sex fields in the 
+            PersonalControl file.
+
+        Returns:
+        pandas.DataFrame
+            Modified PersonControls file as a pandas DataFrame 
+
+        Notes:
+        There is no geography definition in either the base_age_pyramid
+        or the future_age_pyramid definitions. If this is desired then it is
+        recommended to run this method multiple times using filters to 
+        specify the age pyramids used for each subset. 
+
+        """
 #endregion
