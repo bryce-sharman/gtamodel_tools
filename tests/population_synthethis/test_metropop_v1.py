@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import tmg_tdm_tools
-from tmg_tdm_tools.population_synthethis.metropop_v1 import MetroPopV1Inputs
+from tmg_tdm_tools.population_synthesis.metropop_v1 import MetroPopV1Inputs
 from tmg_tdm_tools.common.spatial_aggregator import create_spatial_aggregator
 import tmg_tdm_tools.enums.population_synthesis.metropop_v1  as empv1
 @pytest.fixture

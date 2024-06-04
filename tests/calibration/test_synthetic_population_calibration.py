@@ -16,10 +16,9 @@ from tmg_tdm_tools.enums.synthetic_population import HOUSEHOLD_DTYPES
 
 @pytest.fixture
 def synthetic_population():
-    src_path = files(tmg_tdm_tools)
-    root_path = src_path.parents[1]
+    root_path = files(__package__).parents[0]
     popsyn_testdata_path = \
-        root_path / "tests/test_data/synthetic_population/gtamodelv4_1_2"
+        root_path / "test_data/synthetic_population/gtamodelv4_1_2"
     households_path = popsyn_testdata_path / "households.csv"
     persons_path = popsyn_testdata_path / "persons.csv"
     yield SyntheticPopulation(

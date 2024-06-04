@@ -12,9 +12,9 @@ def test_same_pop_v0_vs_v_1_2():
     with version headers. Test that the imported populations are identical.
 
     """
-    src_path = files(tmg_tdm_tools)
-    root_path = src_path.parents[1]
-    synthpop_root_path = root_path / "tests/test_data/synthetic_population"
+
+    root_path = files(__package__)
+    synthpop_root_path = root_path / "test_data/synthetic_population"
     v0_root_path = synthpop_root_path / "gtamodelv4_0"
     v1_2_root_path = synthpop_root_path / "gtamodelv4_1_2"
     sp_v0 = sp.SyntheticPopulation(
