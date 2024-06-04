@@ -12,10 +12,9 @@ import tmg_tdm_tools.enums.population_synthesis.metropop_v1  as empv1
 @pytest.fixture
 def metropop_v1():
     mpv1 = MetroPopV1Inputs()
-    src_path = files(tmg_tdm_tools)
-    root_path = src_path.parents[1]
+    root_path = files(__package__).parents[0]
     popsyn_testdata_path = \
-        root_path / "tests/test_data/population_synthesis/metropop_v1"
+        root_path / "test_data/population_synthesis/metropop_v1"
     mpv1.read_input_files(
         popsyn_testdata_path, 
         popsyn_testdata_path / "Scenarios"
@@ -255,10 +254,9 @@ def test_hhld_sizes_from_seeds_dtypes(metropop_v1):
 
     # Due to its size, read in the reference dataframe from a file,
     # which is also saved in test_data.
-    src_path = files(tmg_tdm_tools)
-    root_path = src_path.parents[1]
+    root_path = files(__package__).parents[0]
     popsyn_testdata_path = \
-        root_path / "tests/test_data/population_synthesis/metropop_v1/"
+        root_path / "test_data/population_synthesis/metropop_v1/"
     dtypes = {
         "HouseholdType": empv1.SD_DTYPES[empv1.SD_HHLD_HHLDTYPE],
         "DwellingType": empv1.SD_DTYPES[empv1.SD_HHLD_DWELLINGTYPE],

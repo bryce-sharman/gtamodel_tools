@@ -41,6 +41,7 @@ class MetroPopV1Inputs():
     def __init__(self):
         pass
 
+
     def read_input_files(
             self, 
             input_dir: Path | str, 
@@ -56,29 +57,55 @@ class MetroPopV1Inputs():
         input_dir = Path(input_dir)
         scenario_dir = Path(scenario_dir)
         
-        # Files in the root directory
+        # Files in the Inputs root directory
+        self.read_inputs_pdmap_file(
+            input_dir / empv1.FN_PDMAP)
+        self.read_inputs_zonesystem_file(
+            input_dir / empv1.FN_ZS)
+
+        # Files in the Inputs Seed directory
+        seed_dir = input_dir / empv1.DN_SEEDDATA
+        self.read_seed_planning_groups_file(
+            seed_dir / empv1.FN_PDGROUPS)
+        self.read_seedpopulation_file(
+            seed_dir / empv1.FN_SEEDS)
+
+        # Files in the Scenario directory
+        self.read_householdcontrols_file(
+            scenario_dir / empv1.FN_SCEN_HHLD_CNTRLS)
+        self.read_personscontrols_file(
+            scenario_dir / empv1.FN_SCEN_PERS_CNTRLS)
+        self.read_zoneattributes_file(
+            scenario_dir / empv1.FN_SCEN_ZNATTRS)
+
+    def read_inputs_pdmap_file(self, fp):
         self.pd_map = pd.read_csv(
-                input_dir / empv1.FN_PDMAP, 
-                dtype=empv1.PDMAP_DTYPES, 
-                usecols=empv1.PDMAP_DTYPES.keys(), 
-                index_col=empv1.PDMAP_FROM
-            )
+            fp, 
+            dtype=empv1.PDMAP_DTYPES, 
+            usecols=empv1.PDMAP_DTYPES.keys(), 
+            index_col=empv1.PDMAP_FROM
+        )
+
+    def read_inputs_zonesystem_file(self, fp):
+        if self.pd_map is None:
+            raise RuntimeError(
+                "Must read in PD groups file before zone system file.")
         zs = pd.read_csv(
-            input_dir / empv1.FN_ZS, 
+            fp, 
             dtype=empv1.ZS_DTYPES, 
             usecols=empv1.ZS_DTYPES.keys(), 
             index_col=empv1.ZS_ZONEID
         )
-        # Create zone planning district maps, 
-        # Use the original map if blank
+        # Create zone planning district maps, use the original map if blank
         zs = zs.merge(
             self.pd_map, 
             left_on=empv1.ZS_PD, 
             right_index=True, 
             how="left"
         )
-        # There are likely PDs that are not mapped in self.PD_map file
-        # Copy these over to the new zone system field
+        # The self.PD_map file does not need to contain PDs if they
+        # are not mapped to another value.
+        # Copy unmapped PDs over to the zone system file
         fltr = pd.isna(zs[empv1.PDMAP_TO])
         zs.loc[fltr, empv1.PDMAP_TO] = zs.loc[fltr, empv1.ZS_PD]
         fltr = pd.isna(zs[empv1.PDMAP_TO])
@@ -86,16 +113,21 @@ class MetroPopV1Inputs():
         zs = zs.rename({empv1.PDMAP_TO: self.PD_COLUMN}, axis=1)
         self.zs = zs.drop([empv1.ZS_PD], axis=1)
         self.zs.index.name = self.ZONE_COLUMN
-        # Files in the Seed directory
-        seed_dir = input_dir / empv1.DN_SEEDDATA
+
+    def read_seed_planning_groups_file(self, fp):
         self.seed_pdgroups = pd.read_csv(
-            seed_dir / empv1.FN_PDGROUPS, 
+            fp, 
             dtype=empv1.PDGR_DTYPES, 
             usecols=empv1.PDGR_DTYPES.keys(), 
             index_col=empv1.PDGR_INDEX
         )
+
+    def read_seedpopulation_file(self, fp):
+        if self.seed_pdgroups is None:
+            raise RuntimeError(
+                "Must read in PD groups file before HouseholdControl file.")
         self.seeds = pd.read_csv(
-            seed_dir / empv1.FN_SEEDS, 
+            fp, 
             dtype=empv1.SD_DTYPES, 
             usecols=empv1.SD_DTYPES.keys(),
             index_col=[empv1.SD_HHLD_ID, empv1.SD_PERS_ID]
@@ -107,9 +139,12 @@ class MetroPopV1Inputs():
             right_index=True
         )
 
-        # Files in the Scenario directory
+    def read_householdcontrols_file(self, fp):
+        if self.seed_pdgroups is None:
+            raise RuntimeError(
+                "Must read in PD groups file before HouseholdControl file.")
         self.scen_hhld_controls = pd.read_csv(
-            scenario_dir / empv1.FN_SCEN_HHLD_CNTRLS, 
+            fp, 
             dtype=empv1.HHLDCNTRLS_DTYPES, 
             usecols=empv1.HHLDCNTRLS_DTYPES.keys()
         )
@@ -119,8 +154,13 @@ class MetroPopV1Inputs():
             left_on=empv1.HHLDCNTRLS_PD, 
             right_index=True
         )
+
+    def read_personscontrols_file(self, fp):
+        if self.seed_pdgroups is None:
+            raise RuntimeError(
+                "Must read in PD groups file before HouseholdControl file.")
         self.scen_pers_controls = pd.read_csv(
-            scenario_dir / empv1.FN_SCEN_PERS_CNTRLS, 
+            fp, 
             dtype=empv1.PERSCNTRLS_DTYPES, 
             usecols=empv1.PERSCNTRLS_DTYPES.keys()
         )
@@ -130,12 +170,15 @@ class MetroPopV1Inputs():
             left_on=empv1.PERSCNTRLS_PD, 
             right_index=True
         )
+
+    def read_zoneattributes_file(self, fp):
         self.scen_zone_attrs = pd.read_csv(
-            scenario_dir / empv1.FN_SCEN_ZNATTRS, 
+            fp, 
             dtype=empv1.ZA_DTYPES, 
             usecols=empv1.ZA_DTYPES.keys(), 
             index_col=empv1.ZA_ZONEID
         )
+
 
 #region input directory
     def summarize_number_of_seeds_by_hhld_ipu_segment(self) -> pd.Series:
