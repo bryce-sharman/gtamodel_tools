@@ -135,22 +135,6 @@ def test_zone_employment_spat_aggr_1lvl1aggr_pd(metropop_v1, sa_1lvl_aggr_pds):
     tm.assert_frame_equal(df, ref_df)
 
 
-def test_forecast_perscontrols_summary_nodtypes(metropop_v1):
-    # Reference data taken from calculation done in Excel
-    ref_df = pd.DataFrame(
-        index=pd.Index([1, 2], dtype=np.float32, name='PD'),
-        columns=['child', 'adult', 'senior'],
-        data=[
-            [0.305555556, 0.555555556, 0.138888889],
-            [0.151020408, 0.702040816, 0.146938776]
-        ]
-    )
-
-    df = metropop_v1.summarize_forecast_perscontrols(
-        add_dwellingtype_segmentation=False
-    )
-    tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
-
 def test_forecast_perscontrols_summary_withdtypes(metropop_v1):
     # Reference data taken from calculation done in Excel
     ref_df = pd.DataFrame(
@@ -169,9 +153,7 @@ def test_forecast_perscontrols_summary_withdtypes(metropop_v1):
         ]
     )
 
-    df = metropop_v1.summarize_forecast_perscontrols(
-        add_dwellingtype_segmentation=True
-    )
+    df = metropop_v1.summarize_forecast_perscontrols()
     tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
 
 
@@ -276,29 +258,6 @@ def test_hhld_sizes_from_seeds_dtypes(metropop_v1):
     tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
 
 
-def test_forecast_hhldcontrols_summary_nodtypes(metropop_v1):
-    """ Test expected household sizes with high seed threshold. 
-    
-        Will not allow any segmentation by dwelling type when calculating
-        expected household size.
-
-    """
-    # Reference calculations done separately in Excel
-    ref_df = pd.DataFrame(
-        index=pd.Index([1, 2], dtype=empv1.PDMAP_DTYPES[empv1.PDMAP_TO],
-                       name='PD'),
-        columns=['child', 'adult', 'senior'],
-        data=[
-            [0.234633886, 0.577231427, 0.188134687],
-            [0.18872267, 0.619485999, 0.191791331]
-        ],
-        dtype=np.float64
-    )
-
-    df = metropop_v1.summarize_forecast_hhldcontrols(False, 2)
-    tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
-
-
 def test_forecast_hhldcontrols_summary_withdtypes(metropop_v1):
     """ Test expected household sizes with low seed threshold. 
     
@@ -324,6 +283,6 @@ def test_forecast_hhldcontrols_summary_withdtypes(metropop_v1):
         ]
     )
 
-    df = metropop_v1.summarize_forecast_hhldcontrols(True, 2)
+    df = metropop_v1.summarize_forecast_hhldcontrols(2)
     tm.assert_frame_equal(df, ref_df, check_exact=False, rtol=1e-5, atol=1e-8)
 

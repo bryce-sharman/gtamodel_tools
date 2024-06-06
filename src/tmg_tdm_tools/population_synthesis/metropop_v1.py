@@ -66,15 +66,20 @@ class MetroPopV1Inputs():
         # Files in the Inputs Seed directory
         seed_dir = input_dir / empv1.DN_SEEDDATA
         self.read_seed_planning_groups_file(
-            seed_dir / empv1.FN_PDGROUPS)
+            seed_dir / empv1.FN_PDGROUPS
+        )
         self.read_seedpopulation_file(
-            seed_dir / empv1.FN_SEEDS)
+            seed_dir / empv1.FN_SEEDS,
+            merge_with_pdgroups=True
+        )
 
         # Files in the Scenario directory
         self.read_householdcontrols_file(
-            scenario_dir / empv1.FN_SCEN_HHLD_CNTRLS)
+            scenario_dir / empv1.FN_SCEN_HHLD_CNTRLS,
+            merge_with_pdgroups=True)
         self.read_personscontrols_file(
-            scenario_dir / empv1.FN_SCEN_PERS_CNTRLS)
+            scenario_dir / empv1.FN_SCEN_PERS_CNTRLS,
+            merge_with_pdgroups=True)
         self.read_zoneattributes_file(
             scenario_dir / empv1.FN_SCEN_ZNATTRS)
 
@@ -89,7 +94,7 @@ class MetroPopV1Inputs():
     def read_inputs_zonesystem_file(self, fp):
         if self.pd_map is None:
             raise RuntimeError(
-                "Must read in PD groups file before zone system file.")
+                "Must read in PD map file before zone system file.")
         zs = pd.read_csv(
             fp, 
             dtype=empv1.ZS_DTYPES, 
@@ -122,54 +127,60 @@ class MetroPopV1Inputs():
             index_col=empv1.PDGR_INDEX
         )
 
-    def read_seedpopulation_file(self, fp):
-        if self.seed_pdgroups is None:
-            raise RuntimeError(
-                "Must read in PD groups file before HouseholdControl file.")
+    def read_seedpopulation_file(self, fp, merge_with_pdgroups=False):
         self.seeds = pd.read_csv(
             fp, 
             dtype=empv1.SD_DTYPES, 
             usecols=empv1.SD_DTYPES.keys(),
             index_col=[empv1.SD_HHLD_ID, empv1.SD_PERS_ID]
         )
-        self.seeds = self.seeds.merge(
-            self.seed_pdgroups, 
-            how="inner", 
-            left_on=empv1.SD_HHLD_HOMEPD, 
-            right_index=True
-        )
+        if merge_with_pdgroups:
+            if self.seed_pdgroups is None:
+                raise RuntimeError(
+                    "Must read in PD groups file before seeds file "
+                    "if merge_with_pdgroups is True.")
+            self.seeds = self.seeds.merge(
+                self.seed_pdgroups, 
+                how="inner", 
+                left_on=empv1.SD_HHLD_HOMEPD, 
+                right_index=True
+            )
 
-    def read_householdcontrols_file(self, fp):
-        if self.seed_pdgroups is None:
-            raise RuntimeError(
-                "Must read in PD groups file before HouseholdControl file.")
+    def read_householdcontrols_file(self, fp, merge_with_pdgroups=False):
         self.scen_hhld_controls = pd.read_csv(
             fp, 
             dtype=empv1.HHLDCNTRLS_DTYPES, 
             usecols=empv1.HHLDCNTRLS_DTYPES.keys()
         )
-        self.scen_hhld_controls = self.scen_hhld_controls.merge(
-            self.seed_pdgroups, 
-            how="inner", 
-            left_on=empv1.HHLDCNTRLS_PD, 
-            right_index=True
-        )
+        if merge_with_pdgroups:
+            if self.seed_pdgroups is None:
+                raise RuntimeError(
+                    "Must read in PD groups file before HouseholdControl file "
+                    "if merge_with_pdgroups is True.")
+            self.scen_hhld_controls = self.scen_hhld_controls.merge(
+                self.seed_pdgroups, 
+                how="inner", 
+                left_on=empv1.HHLDCNTRLS_PD, 
+                right_index=True
+            )
 
-    def read_personscontrols_file(self, fp):
-        if self.seed_pdgroups is None:
-            raise RuntimeError(
-                "Must read in PD groups file before HouseholdControl file.")
+    def read_personscontrols_file(self, fp, merge_with_pdgroups=False):
         self.scen_pers_controls = pd.read_csv(
             fp, 
             dtype=empv1.PERSCNTRLS_DTYPES, 
             usecols=empv1.PERSCNTRLS_DTYPES.keys()
         )
-        self.scen_pers_controls = self.scen_pers_controls.merge(
-            self.seed_pdgroups, 
-            how="inner", 
-            left_on=empv1.PERSCNTRLS_PD, 
-            right_index=True
-        )
+        if merge_with_pdgroups:
+            if self.seed_pdgroups is None:
+                raise RuntimeError(
+                    "Must read in PD groups file before PersonsControl file "
+                    "if merge_with_pdgroups is True.")
+            self.scen_pers_controls = self.scen_pers_controls.merge(
+                self.seed_pdgroups, 
+                how="inner", 
+                left_on=empv1.PERSCNTRLS_PD, 
+                right_index=True
+            )
 
     def read_zoneattributes_file(self, fp):
         self.scen_zone_attrs = pd.read_csv(
@@ -334,7 +345,6 @@ class MetroPopV1Inputs():
 #region Scenario directory
     def summarize_forecast_hhldcontrols(
             self, 
-            add_dwellingtype_segmentation: bool, 
             seed_segmentation_min_entries: int
         ) -> pd.DataFrame:
         """ Summarize children, adults and seniors from household controls.
@@ -347,9 +357,6 @@ class MetroPopV1Inputs():
         are not important, only the proportions.
         
         Args:
-        add_dwellingtype_segmentation: bool
-            If True, segment by planning destrict and dwelling type, otherwise 
-            segment by planning district only.
         seed_segmentation_min_entries: int
             minimum number of (unexpanded) households by household type, 
             dwelling type and PD group to use full segmentation when calculating 
@@ -376,14 +383,10 @@ class MetroPopV1Inputs():
         df['exp_adult'] = df[empv1.HHLDCNTRLS_FREQ] * df['adult']
         df['exp_child'] = df[empv1.HHLDCNTRLS_FREQ] * df['child']
         df['exp_senior'] = df[empv1.HHLDCNTRLS_FREQ] * df['senior']
-        if add_dwellingtype_segmentation:
-            pt = df.groupby(
-                [empv1.HHLDCNTRLS_PD, empv1.HHLDCNTRLS_DWELLINGTYPE], 
-                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
-        else:
-            pt = df.groupby(
-                empv1.HHLDCNTRLS_PD, 
-                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
+        pt = df.groupby(
+            [empv1.HHLDCNTRLS_PD, empv1.HHLDCNTRLS_DWELLINGTYPE], 
+            observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
+
         pt['total'] = pt.sum(axis=1)
         pt['child'] = pt['exp_child'] / pt['total']
         pt['adult'] = pt['exp_adult'] / pt['total']
@@ -392,7 +395,6 @@ class MetroPopV1Inputs():
     
     def summarize_forecast_perscontrols(
             self, 
-            add_dwellingtype_segmentation: bool
         ) -> pd.DataFrame:
         """ Summarize children, adults and seniors from person controls file.
     
@@ -402,11 +404,7 @@ class MetroPopV1Inputs():
         Note that the forecast population is set in the zone attributes file, 
         hence it is not the totals coming out of the household and person 
         control files that are important, but the proportions.
-    
-        Args:
-        add_dwellingtype_segmentation: bool
-            If True, segment by planning destrict and dwelling type, otherwise 
-            segment by planning district only.
+
 
         Returns:
         pandas.DataFrame 
@@ -427,14 +425,9 @@ class MetroPopV1Inputs():
         df['exp_adult'] = df[empv1.PERSCNTRLS_FREQ] * df['is_adult']
         df['exp_child'] = df[empv1.PERSCNTRLS_FREQ] * df['is_child']
         df['exp_senior'] = df[empv1.PERSCNTRLS_FREQ] * df['is_senior']
-        if add_dwellingtype_segmentation:
-            pt = df.groupby(
-                [empv1.PERSCNTRLS_PD, empv1.PERSCNTRLS_DWELLINGTYPE], 
-                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
-        else:
-            pt = df.groupby(
-                empv1.PERSCNTRLS_PD, 
-                observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
+        pt = df.groupby(
+            [empv1.PERSCNTRLS_PD, empv1.PERSCNTRLS_DWELLINGTYPE], 
+            observed=False)[['exp_child', 'exp_adult', 'exp_senior']].sum()
         pt['total'] = pt.sum(axis=1)
         pt['child'] = pt['exp_child'] / pt['total']
         pt['adult'] = pt['exp_adult'] / pt['total']
