@@ -1,13 +1,14 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=61.0.0"]
 
 [project]
-name = "tmg_tdm_tools"
-version = "0.01"
-description = "TMG Travel Model Post-Processing"
+name = "gtamodel_tools"
+description = "Python tools supporting TMG GTAModel."
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = ["geopandas", "numpy", "pandas"]
+dynamic = ["version"]
 classifiers = [
     "License :: OSI Approved || MIT License",
     "Operating System :: OS Independent",
@@ -20,4 +21,5 @@ testpaths = [
     "tests"
 ]
 
-
+[tool.setuptools.dynamic]
+version = {attr = "gtamodel_tools.__version__"}

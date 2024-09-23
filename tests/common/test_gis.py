@@ -5,7 +5,7 @@ from shapely import wkt
 import pytest
 import pandas.testing as tm
 
-from tmg_tdm_tools.common.gis import areal_apportionment
+from gtamodel_tools.common.gis import areal_apportionment
 
 @pytest.fixture
 def from_gdf():

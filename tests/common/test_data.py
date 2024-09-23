@@ -5,7 +5,7 @@ import pandas as pd
 import pandas.testing as tm
 import pytest
 
-from tmg_tdm_tools.common.data import round_to_totals
+from gtamodel_tools.common.data import round_to_totals
 
 
 

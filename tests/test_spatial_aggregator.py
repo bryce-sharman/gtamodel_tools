@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pandas.testing as tm
 
-import tmg_tdm_tools.common.spatial_aggregator as sa
+import gtamodel_tools.common.spatial_aggregator as sa
 
 def test_modelregion_uint32_dtype():
     ref_spat_aggr = pd.Series(
