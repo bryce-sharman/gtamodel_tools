@@ -54,7 +54,11 @@ JURISDICTIONS_GTHA = [
     'Municipality of Clarington',
     'Township of Scugog',
     "Mississauga's of Scugog Island",
+    'Township of Brock',
     'Township of Uxbridge',
+    'Regional Municipality of Durham',
+
+
     # York
     'Town of Georgina',
     'Chippewas of Georgina Island First Nation 33a',
@@ -76,7 +80,10 @@ JURISDICTIONS_GTHA = [
     'City of Burlington',
     'Town of Halton Hills', 
     # Hamilton
-    'City of Hamilton'
+    'City of Hamilton',
+    # Highways
+    'Ministry of Transportation',
+    '407 Etr'
 ]
 
 JURISDICTIONS_GGH = JURISDICTIONS_GTHA + [
