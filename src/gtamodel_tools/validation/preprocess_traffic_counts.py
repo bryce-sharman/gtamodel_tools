@@ -79,6 +79,7 @@ def reverse_line_directions(stns: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             x, en_tocnts.AXIS_OFFSET, 'cartesian'))
     stns[OPPDIR_COL] = stns[SHPDIR_COL].map(en_traffic.OPPOSITE_DIR)
     stns[FLAG_COL] = ''
+    stns = stns.copy()  # Ensure a fresh dataset before going line-by-line
     for stni, stnr in stns.iterrows():
         if stnr[en_traffic.DIR] == stnr[OPPDIR_COL]:
             stns.at[stni, FLAG_COL] = FLAG_OPPDIR
@@ -121,7 +122,7 @@ def identify_toronto_count_stations(
     stns = gpd.GeoDataFrame(stns, geometry=en_tcl.TCL_GEOM_COL, crs=tcl_gdf.crs)
     # We have an interim version of all columns now, rename to the 'final' names
     stns = stns.rename(en_tocnts.RENAME_STNS, axis=1)
-    stns[en_traffic.SOURCE] = en_tocnts.AGENCY   
+    stns[en_traffic.SOURCE] = en_tocnts.SOURCE   
 
     # The line direction does not necessarily match the count direction
     # Flip the line direction where required.
@@ -169,6 +170,8 @@ def read_toronto_totalonly_volumes(
     cnts[en_traffic.TIME_START] = cnts[en_traffic.TIME_START].dt.time
     cnts[en_traffic.TIME_END] = cnts[en_traffic.TIME_END].dt.time
     # Read the count data ensuring that fields are in the proper order
+    cnts[en_traffic.SOURCE] = en_tocnts.SOURCE   
+
     cnts = cnts[en_traffic.CNT_FIELDS_VOLONLY].set_index(
         en_traffic.CNT_FIELDS_BASE)
     return cnt_stations, cnts
@@ -225,6 +228,7 @@ def read_toronto_trafficclass_volumes(
     cnts[en_traffic.CNT_TOTAL] = cnts[en_traffic.CNT_HEAVY] \
         + cnts[en_traffic.CNT_CAR] 
 
+    cnts[en_traffic.SOURCE] = en_tocnts.SOURCE  
     cnts = cnts[en_traffic.CNT_FIELDS_CLASSIFIED].set_index(
         en_traffic.CNT_FIELDS_BASE)
     return cnt_stations, cnts
@@ -405,20 +409,18 @@ def read_cordoncounts(cc_fp: PathLike) -> pd.DataFrame:
         region, year = header.split(' ')
         region = region.strip()
         year = year.strip()
+        print(region, year)
         # We've already read (popped) the first row, hence no need to skip it
-        df = pd.read_csv(f) 
+        df = pd.read_csv(f, index_col=False) 
 
     # Process counts
-    df = df.reset_index()
     df = remove_invalid_cc_start_end_times(df, en_cc.CC_SRTTIME_COL)
     df = remove_invalid_cc_start_end_times(df, en_cc.CC_ENDTIME_COL)
-    # Create the count_id column
-    count_id = pd.Series((df.index.get_level_values(0) + 1))
-    count_id = count_id.astype(str).str.pad(6, fillchar='0')
-    df[en_traffic.COUNT_ID] = en_cc.AGENCY[region] + str(year) + count_id
+
+    # Remove the direction from the stations column, we'll keep separate
+    df[en_cc.CC_CNT_STN_COL] = df[en_cc.CC_CNT_STN_COL].str.slice(0, -1)
     # Rename index columns
     df = df.rename(en_cc.RENAME_COUNT_COLS, axis=1)
-
     # process the date and time columns
     df[en_traffic.DATE] = datetime.date(year=int(year), month=1, day=1)
     df[en_traffic.TIME_START] = df[en_traffic.TIME_START].apply(
@@ -444,6 +446,9 @@ def read_cordoncounts(cc_fp: PathLike) -> pd.DataFrame:
         + df[en_traffic.CNT_MULTITRAILERTRK] 
     df[en_traffic.CNT_HEAVY] = df[en_traffic.CNT_TRUCK] + df[en_traffic.CNT_BUS]
     df[en_traffic.CNT_TOTAL] = df[en_cc.TOTAL_COL]
+
+    # Add the source column
+    df[en_traffic.SOURCE] = en_cc.AGENCY[region]
 
     # Return parsed counts
     df = df[en_traffic.CNT_FIELDS_CLASSIFIED].set_index(

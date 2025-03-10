@@ -2,7 +2,7 @@
 
 import gtamodel_tools.enums.validation.traffic.traffic as en_traffic
 
-AGENCY = 'TO'
+SOURCE = 'TMBK'
 
 INDEX_COL = 'id'
 STNID_COL = 'count_id'

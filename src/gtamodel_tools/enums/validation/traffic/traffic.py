@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, time
 import numpy as np
 from shapely import MultiLineString 
 
@@ -27,7 +27,7 @@ CNT_TOTAL = 'vol_total'
 STN_FIELDS = [SOURCE, STN_ID, DIR, DESC, LAT, LON, GEOM]
 STN_INDEX_COLS = [SOURCE, STN_ID, DIR]
 
-CNT_FIELDS_BASE = [COUNT_ID, STN_ID, DIR, DATE, TIME_START, TIME_END]
+CNT_FIELDS_BASE = [SOURCE, STN_ID, DIR, DATE, TIME_START, TIME_END]
 CNT_FIELDS_VOLONLY = CNT_FIELDS_BASE + [CNT_TOTAL]
 CNT_FIELDS_CLASSIFIED = CNT_FIELDS_BASE + [
     CNT_CAR, CNT_BUS, CNT_STRAIGHTTRK, CNT_1TRAILERTRK, CNT_MULTITRAILERTRK,
@@ -45,29 +45,26 @@ OPPOSITE_DIR = {
 CRS = 'EPSG:4326'
 
 
-# STN_DTYPES = {
-#     SOURCE: str,
-#     STN_ID: str,
-#     DIR: str,
-#     DESC: str,
-#     LAT: np.float64,
-#     LON: np.float64,
-#     GEOM: MultiLineString
+STN_DTYPES = {
+    SOURCE: str,
+    STN_ID: str,
+    DIR: str,
+    DESC: str,
+    LAT: np.float64,
+    LON: np.float64,
+}
 
-# }
-
-# CNT_DTYPES = {
-#     'count_id': str,
-#     'station_id' : str,
-#     'time_start': datetime,
-#     'time_end': datetime,
-#     'direction': str,
-#     'vol_passenger': np.int64,
-#     'vol_buses': np.int64,
-#     'vol_straighttruck': np.int64,
-#     'vol_singletrailer': np.int64,
-#     'vol_multitrailer': np.int64,
-#     'vol_truck': np.int64,
-#     'vol_heavy': np.int64,
-#     'vol_total': np.int64,
-# }
+CNT_DTYPES = {
+    SOURCE: str,
+    COUNT_ID: str,
+    STN_ID : str,
+    DIR: str,
+    CNT_CAR: np.int64,
+    CNT_BUS: np.int64,
+    CNT_STRAIGHTTRK: np.int64,
+    CNT_1TRAILERTRK: np.int64,
+    CNT_MULTITRAILERTRK: np.int64,
+    CNT_TRUCK: np.int64,
+    CNT_HEAVY: np.int64,
+    CNT_TOTAL: np.int64,
+}
