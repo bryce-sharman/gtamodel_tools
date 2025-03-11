@@ -377,6 +377,13 @@ def identify_cordon_count_stations(
 def process_cc_timecol(cc_time: int):
     hour = cc_time // 100
     minute = cc_time - (hour * 100)
+
+    # Some counts go from ... say ... 6:15 - 6:30
+    # Others go from ... say ... 6:16 - 6:31
+    # Convert the minutes to be one of 0, 15, 30, 45, only
+    if minute in [1, 16, 31, 46]:
+        minute -= 1
+
     return datetime.time(hour=hour, minute=minute)
 
 def remove_invalid_cc_start_end_times(
@@ -409,7 +416,6 @@ def read_cordoncounts(cc_fp: PathLike) -> pd.DataFrame:
         region, year = header.split(' ')
         region = region.strip()
         year = year.strip()
-        print(region, year)
         # We've already read (popped) the first row, hence no need to skip it
         df = pd.read_csv(f, index_col=False) 
 
