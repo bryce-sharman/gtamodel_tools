@@ -5,10 +5,6 @@ analysis tools called from other tools in this package.
 Network packages are a development of the TravelModellingGroup at the 
 University of Toronto that extends Emme's text output to include 
 assignment results.
-
-The code in this module is based on the premise developed by WSP Canada
-to read Emme network stored in .nwp format directly into Python, and
-their initial code to do this task.
  
 """
 
@@ -21,22 +17,11 @@ import numpy as np
 from os import PathLike
 import pandas as pd
 from pandas.api.types import is_string_dtype
-from pathlib import Path
-import re
 from typing import Callable, List, Hashable, Self, Tuple, Type, Union
-import zipfile
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
 import gtamodel_tools.enums.validation.traffic.traffic as en_traffic
-
-ERR_MSG_NOT_HYPERNETWORK = "This method cannot be run on a hypernetwork."
-ERR_MSG_TRAFFIC_RESULTS = "Network with traffic results required."
-ERR_MSG_TRANSIT_RESULTS = "Network with transit results required."
-TRAFFIC_RESULTS_COLNAMES = ['auto_volume', 'additional_volume', 'auto_time']
-TRANSIT_RESULTS_COLNAMES  = ['boardings', 'alightings', 'volume']
-EXPR_COLNAME = '_eval_'
-FLTR_COLNAME = '_filtered_'
 
 idx = pd.IndexSlice
 
@@ -56,50 +41,13 @@ class Network(object):
             Transit line definitions
         tsegments: pd.DataFrame,
             Transit segment definitions
-        crs: str
-            Projection string in which network is coded.
-        network_coding_standard: str
+        coding_standard: str
             Currently must be one of ['ncs11', 'ncs16', 'ncs22'], but it is
             anticipated to add more in the future.
         has_traffic_results: bool
             True if network includes traffic results
         has_transit_results: bool
             True if network includes transit results
-
-
-    Attributes:
-        nodes: pd.DataFrame
-            Table of network nodes, including attributes
-        links: pd.DataFrame
-            Table of network links, including attributes and traffic results
-        tvehicles: pd.DataFrame
-            Table of transit vehicles
-        tlines: pd.DataFrame
-            Table of transit lines
-        tsegments: pd.DataFrame
-            Table of transit segments
-        has_traffic_results: bool
-            True if network includes traffic results
-        has_transit_results: bool
-            True if network includes transit results
-        is_hypernetwork: bool
-            True if network is a hypernetwork.
-
-    Methods:
-        collapse_hypernetwork:
-            Creates an equivalent network to a hyper-transit network
-            collapsing to an equivalent 'regular' (non-hyper) network.
-        summarize_link_attrs:
-            Summarize link expression including traffic assignment attributes 
-            over links with optional filters, geographic and attribute
-            segmentation.
-        summarize_transit_segments:
-            Summarize transit segment expression over with optional filters, 
-            geographic and attribute segmentation. The transit segment
-            expression can include link, transit line, transit vehicle and 
-            transit assignment result attributes.
-        summarize_link_attrs_along_screenlines:
-            Summarizes link expression over screenlines.
 
     """
 
@@ -132,21 +80,35 @@ class Network(object):
 
         self.min_regnode_id = en_ntcs.MIN_REGNODE_ID
         self.auto_mode = en_ntcs.AUTO_MODE
-        self.length_col = en_ntcs.LENGTH_COL
-        self.modes_col = en_ntcs.MODES_COL
-        self.type_col = en_ntcs.TYPE_COL
-        self.lanes_col = en_ntcs.LANES_COL
-        self.vdf_col = en_ntcs.VDF_COL
-        self.ffspd_col = en_ntcs.FFSPD_COL
-        self.lanecap_col = en_ntcs.LANECAP_COL
+        self.length = en_ntcs.LENGTH_COL
+        self.modes = en_ntcs.MODES_COL
+        self.type = en_ntcs.TYPE_COL
+        self.lanes = en_ntcs.LANES_COL
+        self.ffspd = en_ntcs.FFSPD_COL
+        self.lanecap = en_ntcs.LANECAP_COL
+        self.linkclass = 'link_class'
+        self.linkclass_exprs = en_ntcs.LINK_CLASSIFICATION_EXPRS
         if has_traffic_results:
             self.has_traffic_results = has_traffic_results
-            self.autovol_col = en_ntcs.AUTOVOL_COL
-            self.autoaddvol_col = en_ntcs.AUTOADDVOL_COL
-            self.autotime_col = en_ntcs.AUTOTIME_COL
+            self.autovol = en_ntcs.AUTOVOL_COL
+            self.autoaddvol = en_ntcs.AUTOADDVOL_COL
+            self.trafficvol = en_ntcs.TRAFFIC_VOL
+            self.autotime = en_ntcs.AUTOTIME_COL
+            self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
         if has_transit_results:
             self.has_transit_results = has_transit_results
+            self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
+
+        self.err_msg_not_hypernetwork = "This method cannot be run on a hypernetwork."
+        self.err_msg_no_traffic_results = "Network with traffic results required."
+        self.err_msg_no_transit_results = "Network with transit results required."
+        self.expr_colname = '_eval_'
+        self.fltr_colname = '_filtered_'
+        self.zone_ranges = en_ntcs.ZONE_RANGES
+        self.node_ranges = en_ntcs.NODE_RANGES
+
         self.is_hypernetwork = self._test_if_hypernetwork()
+        self.apply_link_classification()
 
 
     def match_links_to_count_stations(self, stns: gpd.GeoDataFrame) -> None:
@@ -238,7 +200,6 @@ class Network(object):
                 [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR]
             ].to_csv(fp)
 
-
     def read_and_apply_link_mappings(self, fp: PathLike) -> None:
         """ 
         Read previously calculated link mappings from a file and apply to links.
@@ -259,8 +220,89 @@ class Network(object):
         self.links = self.links.merge(
             mappings, how='left', left_index=True, right_index=True)
         self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
-    
-    def summarize_link_attrs(
+
+    def apply_link_classification(self):
+        """ Add link classification column to links table. """
+        self.links[self.linkclass] = ''
+        for k, v in self.linkclass_exprs.items():
+            fltr = self.links[v['attr']].isin(v['values'])
+            self.links.loc[fltr, self.linkclass] = k  
+
+    def summarize_links(
+            self,
+            summary: str,
+            include_connectors: bool,
+            *,
+            filter_expression: str | None = None,
+            congested_threshold: float | None = None,
+            node_aggr: Type[sa.SpatialAggregator] | None = None,
+            segment_by_linkclass: bool | None = None,
+            **kwargs
+        ):
+        """ Calculate vehicle kilometers travelled.
+
+        Arguments:
+            include_connectors: Include VKT on connectors.
+            summary: One of 'length', 'lane_length', 'vkt', 'vht'
+                or a custom expression
+            filter_expression: str or None
+                Optional expression to filter links. This is an expression that 
+                will be evaluatated using pandas.eval. If used, expression must
+                evaluate to either True or False. Default is None. A congestion
+                threshold filter is added on top of this expression using the
+                congested_threshold parameter.
+            congested_threshold: float or None
+                If defined, will only calculate VKT on links whose volume/capacity
+                ratio exceeds this treshold.
+            node_aggr: Optional spatial aggregator. If defined will segment the VKT 
+                by region. Default is None.
+            segment_by_linkclass: bool
+                If true, additionally segment VKT by link classification.
+            kwargs: Additional arguments to be passed to _summarize_links
+        """
+        # Lookup the expression
+        if summary == 'length':
+            expression = self.length
+        elif summary == 'lane_length':
+            expression = f'{self.length} * {self.lanes}'
+        elif summary == 'vkt':
+            expression = self.traffic_vkt_expr
+        elif summary == 'vht':
+            expression = self.traffic_vht_expr
+        else:
+            expression = summary
+        if congested_threshold is not None:
+            cong_fltr_expr = \
+                f'{self.congested_filter_extr} > {congested_threshold}'
+            if filter_expression is not None:
+                filter_expression = f'{filter_expression} and {cong_fltr_expr}'
+            else:
+                filter_expression = cong_fltr_expr
+        if segment_by_linkclass:  # add to cross_tabs kwargs argument
+            if 'crosstab_columns' in kwargs:
+                # Move crosstab columns out of kwargs to deal with 'officially'
+                kw_crosstab = kwargs['crosstab_columns']
+                if isinstance(kw_crosstab, Hashable):
+                    kwargs['crosstab_columns'] = [kwargs['crosstab_columns']]
+                kwargs['crosstab_columns'] = \
+                    kwargs['crosstab_columns'] + [self.linkclass]
+            else:
+                kwargs['crosstab_columns'] = self.linkclass
+        print(expression)
+        print(include_connectors)
+        print(filter_expression)
+        print(node_aggr)
+        print(kwargs)
+
+        return self._summarize_links(
+            expression=expression, 
+            include_connectors=include_connectors, 
+            filter_expression=filter_expression,
+            node_aggr=node_aggr, 
+            **kwargs
+        )
+
+    def _summarize_links(
             self, 
             expression: str,
             include_connectors: bool,
@@ -318,33 +360,27 @@ class Network(object):
         # see if we need traffic results and don't have them.
         if not self.has_traffic_results:
             if self._test_attrs_in_expression(
-                    expression, self.TRAFFIC_RESULTS_COLNAMES):
-                raise RuntimeError(self.ERR_MSG_TRAFFIC_RESULTS)
+                    expression, self.traffic_results):
+                raise RuntimeError(self.err_msg_no_traffic_results)
             if self._test_attrs_in_expression(
-                    filter_expression, self.TRAFFIC_RESULTS_COLNAMES):
-                raise RuntimeError(self.ERR_MSG_TRAFFIC_RESULTS)
+                    filter_expression, self.traffic_results):
+                raise RuntimeError(self.err_msg_no_traffic_results)
 
         links = self.links.copy()
-        # Apply filters, including connectors
-        links[self.FLTR_COLNAME] = True
-
-        if filter_expression is None:
-            links[self.FLTR_COLNAME] = True
-        else:
-            links[self.FLTR_COLNAME] = False
+        # Apply filters, start by including everything
+        links[self.fltr_colname] = True
+        if filter_expression is not None:
             fltr = links.eval(filter_expression).astype(bool)
-            links.loc[fltr, self.FLTR_COLNAME] = True
-            
+            links.loc[~fltr, self.fltr_colname] = False
         if include_connectors is False:
             links = self._filter_connectors_from_linktable(
-                links, self.FLTR_COLNAME)
-        #Evalulate expression
-        links[self.EXPR_COLNAME] = links.eval(expression)       
+                links, self.fltr_colname)
 
+        links[self.expr_colname] = links.eval(expression)       
         # This is the simple case, no geographic or attribute segmentation     
         if node_aggr is None and crosstab_columns is None:
             return links.loc[
-                links[self.FLTR_COLNAME], self.EXPR_COLNAME].sum()
+                links[self.fltr_colname], self.expr_colname].sum()
         # Apply geographic segmentation to nodes, merging to links as needed.
         if node_aggr is not None:
             aggr_colname = node_aggr().name
@@ -373,8 +409,9 @@ class Network(object):
             else:
                 crosstab_columns=[aggr_colname, crosstab_columns]
         return links.loc[
-            links[self.FLTR_COLNAME]].groupby(
-                crosstab_columns)[self.EXPR_COLNAME].sum()       
+            links[self.fltr_colname]].groupby(
+                crosstab_columns)[self.expr_colname].sum()       
+
 
     # def summarize_link_attrs_along_screenlines(
     #         self,
@@ -456,11 +493,11 @@ class Network(object):
         # Look if traffic or transit results are required
         if not self.has_traffic_results:
             if self._test_attrs_in_expression(
-                    expression, self.TRAFFIC_RESULTS_COLNAMES):
+                    expression, self.traffic_results):
                 raise RuntimeError(self.ERR_MSG_TRAFFIC_RESULTS)
         if not self.has_transit_results:
             if self._test_attrs_in_expression(
-                    expression, self.TRANSIT_RESULTS_COLNAMES):
+                    expression, self.traffic_results):
                 raise RuntimeError(self.ERR_MSG_TRANSIT_RESULTS)
         if node_aggr is not None:
             if ij_aggr not in ['inode', 'jnode', 'ijnodes']:
@@ -875,3 +912,18 @@ class Network(object):
 
 #endregion
 
+#region properties
+
+    @property
+    def traffic_vkt_expr(self) -> str:
+        return f'{self.length} * {self.trafficvol}'
+
+    @property
+    def traffic_vht_expr(self) -> str:
+        return f'{self.autotime} * {self.trafficvol} / 60.0'
+
+    @property
+    def congested_filter_extr(self) -> str:
+        return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
+
+#endregion

@@ -11,33 +11,67 @@ FFSPD_COL = 'ul2'
 LANECAP_COL = 'ul3'
 AUTOVOL_COL = 'auto_volume'
 AUTOADDVOL_COL = 'additional_volume'
+TRAFFIC_VOL = f'({AUTOVOL_COL} + {AUTOADDVOL_COL})'
 AUTOTIME_COL = 'auto_time'
 
-TRAFFIC_VKT_EXPR = "length * (auto_volume + additional_volume)"
-TRAFFIC_VHT_EXPR = "timau * (auto_volume + additional_volume) / 60.0"
-FILTER_VCR_EXPR = "((auto_volume + additional_volume) /  " \
-                  "(lanes * data3)) > "
+TRBOARDINGS_COL = 'boardings'
+TRALIGHTINGS_COL = 'alightings'
+TRONBOARD_COL = 'volume'
 
 MIN_REGNODE_ID = 10000
 AUTO_MODE = 'c'
-zone_ranges = sa.create_spatial_aggregator(
+
+TRAFFIC_RESULTS_COLNAMES = [AUTOVOL_COL, AUTOADDVOL_COL, AUTOTIME_COL]
+TRANSIT_RESULTS_COLNAMES  = [TRBOARDINGS_COL, TRALIGHTINGS_COL, TRONBOARD_COL]
+
+
+
+LINK_CLASSIFICATION_EXPRS = {
+    'freeway': {
+        'attr': VDF_COL,
+        'values': [11, 12],
+    },
+    'exclusive': {
+        'attr': VDF_COL,
+        'values': [14, 16, 41]
+    },
+    'ramp': {
+        'attr': VDF_COL,
+        'values': [13, 15, 17]
+    },
+    'arterial': {
+        'attr': VDF_COL,
+        'values': [20, 21, 30, 40, 42, 50]
+    },
+    'collector': {
+        'attr': VDF_COL,
+        'values': [22, 43, 51]
+    },
+    'connector': {
+        'attr': VDF_COL,
+        'values': [90]
+    }
+}
+
+ZONE_RANGES = sa.create_spatial_aggregator(
         'custom_ranges', 
         ranges=[
-            ('toronto', 1, 1000), 
-            ('durham', 1001, 2000),
-            ('york', 2001, 3000),
-            ('peel', 3001, 4000),
-            ('halton', 4001, 5000),
-            ('hamilton', 5001, 6000),
-            ('external', 6001, 7000),
-            ('undefined', 7001, 9799),
-            ('special', 9800, 9999)
+            ('Toronto', 0, 1000), 
+            ('Durham', 1001, 2000),
+            ('York', 2001, 3000),
+            ('Peel', 3001, 4000),
+            ('Halton', 4001, 5000),
+            ('Hamilton', 5001, 6000),
+            ('External', 6001, 7000),
+            ('Undefined', 7001, 9699),
+            ('Subway_stations', 9700, 9799),
+            ('GORail_stations', 9800, 9999)
         ],
         ids=range(0, 10000),
         name='zone_regions',
     )
 
-node_ranges = sa.create_spatial_aggregator(
+NODE_RANGES = sa.create_spatial_aggregator(
         'custom_ranges', 
         ranges=[
             ('centroid', 0, 9999), 
@@ -47,24 +81,17 @@ node_ranges = sa.create_spatial_aggregator(
             ('Peel', 40000, 49999),
             ('Halton', 50000, 59999),
             ('Hamilton', 60000, 69999),
-            ('External', 70000, 89999),
-            ('Special', 90000, 999999),
             ('Niagara', 70000, 79999),
             ('Haldimand-Norfolk',  80000, 80999),
-            ('Brant County',  81000, 81999),
-            ('Waterloo Region',  82000, 84999),
-            ('Wellington County',  85000, 86999),
-            ('Dufferin County',  87000, 87999),
-            ('Simcoe County',  88000, 89999),
-            ('Kawartha Lakes Division', 90000, 90999),
-            ('Peterborough County', 91000, 91999),
+            ('Brant',  81000, 81999),
+            ('Waterloo',  82000, 84999),
+            ('Wellington' ,  85000, 86999),
+            ('Dufferin' ,  87000, 87999),
+            ('Simcoe',  88000, 89999),
+            ('Kawartha Lakes', 90000, 90999),
+            ('Peterborough', 91000, 91999),
             ('External zones/gateways Canada', 94000, 94999),
             ('External zones/gateways, US', 95000, 95999),
-            ('BRT/LRT nodes', 96000, 96999),
-            ('Subway nodes',  97000, 97999),
-            ('GO Rail nodes',  98000, 98999),
-            ('Hypernetwork nodes', 100000, 900000),
-            ('HOV',  900000, 999999)
         ],
         ids=range(0, 1000000),
         name='zone_regions',
