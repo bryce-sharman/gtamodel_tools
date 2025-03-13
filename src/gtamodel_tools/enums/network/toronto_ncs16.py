@@ -1,12 +1,14 @@
 import gtamodel_tools.common.spatial_aggregator as sa
 
+CRS = 'EPSG:26917'
+
 LENGTH_COL = 'length'
 MODES_COL = 'modes'
-TYPLE_COL = 'type'
+TYPE_COL = 'type'
 LANES_COL = 'lanes'
 VDF_COL = 'vdf'
-FFSPD_COL = 'ul2'
-LANECAP_COL = 'ul3'
+FFSPD_COL = 'data2'
+LANECAP_COL = 'data3'
 AUTOVOL_COL = 'auto_volume'
 AUTOADDVOL_COL = 'additional_volume'
 AUTOTIME_COL = 'auto_time'
@@ -15,7 +17,8 @@ TRAFFIC_VKT_EXPR = "length * (auto_volume + additional_volume)"
 TRAFFIC_VHT_EXPR = "timau * (auto_volume + additional_volume) / 60.0"
 FILTER_VCR_EXPR = "((auto_volume + additional_volume) /  " \
                   "(lanes * data3)) > "
-
+MIN_REGNODE_ID = 10000
+AUTO_MODE = 'c'
 zone_ranges = sa.create_spatial_aggregator(
         'custom_ranges', 
         ranges=[

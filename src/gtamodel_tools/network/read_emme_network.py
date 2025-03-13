@@ -44,7 +44,6 @@ TSEGCOLS_RENAME = {'data1': 'uS1', 'data2': 'uS2', 'data3': 'uS3'}
 
 def read_emme_network_from_nwp(
         nwp_fp: str | PathLike,
-        crs: str,
         coding_standard: str,
         *,
         node_attributes: str | List[str] | None = None,
@@ -57,6 +56,8 @@ def read_emme_network_from_nwp(
         nwp_fp: str | PathLike
             Path to network package (.nwp) containing network and
             (optionally) results.
+        coding_standard: str
+            Currently must be one of ['ncs11', 'ncs16', 'ncs22']
         node_attributes: str | List[str] | None = None
             Node extra attributes to import. If None will import all node 
             extra attributes. To skip node extra attribute imports, set to [].
@@ -69,15 +70,21 @@ def read_emme_network_from_nwp(
             Transit line extra attributes to import. If None will import all 
             transit line extra attributes. To skip node transit line attribute 
             imports, set to []. Default is None
-        crs: Projection string in which network is coded.
-        coding_standard: str
-            Currently must be one of ['ncs11', 'ncs16', 'ncs22']
+
     
     """
-    # Check if coding standard is in currently valid Emme-based standards
-    if coding_standard not in ['ncs11', 'ncs16', 'ncs22']:
-        raise ValueError("Invalid coding standard. Must be one of: "
-                         "['ncs11', 'ncs16', 'ncs22']")
+   
+    # Define columns as per coding standard
+    if coding_standard == 'ncs11':
+        import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
+    elif coding_standard == 'ncs16':
+        import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
+    elif coding_standard == 'ncs22':
+        import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
+    else:
+        raise ValueError("Invalid Emme coding standard.")
+    crs = en_ntcs.CRS
+
     nwp_fp = Path(nwp_fp)
     if not nwp_fp.is_file():
         raise FileExistsError(f'File does not exsit: {nwp_fp}')
@@ -131,7 +138,7 @@ def read_emme_network_from_nwp(
         has_transit_results = False
 
     return Network(
-        nodes, links, tvehicles, tlines, tsegments, crs, coding_standard, 
+        nodes, links, tvehicles, tlines, tsegments, coding_standard, 
         has_traffic_results, has_transit_results
     )
 
@@ -282,11 +289,11 @@ def read_nwp_base_network(
             # If we get here that means that we have a link shape
             pt_list = [nodes.at[i_node, 'geometry']]
             for _, row in ls.iterrows():
-                pt_list.append(Point(row['x_coord'], row['y_coord']))            
+                pt_list.append(Point(row['x-coord'], row['y-coord']))            
             pt_list.append(nodes.at[j_node, 'geometry'])
-
         except KeyError: # No link shape for this link, create a straight link
-            pt_list = [nodes.at[i_node, 'geometry'], nodes.at[i_node, 'geometry']]
+            pt_list = [nodes.at[i_node, 'geometry'], 
+                       nodes.at[j_node, 'geometry']]
 
         link_geometry.at[i_node, j_node] = LineString(pt_list)
     links = gpd.GeoDataFrame(links, geometry=link_geometry, crs=crs)

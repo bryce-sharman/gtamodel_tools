@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import geopandas as gpd
+from math import fabs
 import numpy as np
 from os import PathLike
 import pandas as pd
@@ -25,7 +26,9 @@ import re
 from typing import Callable, List, Hashable, Self, Tuple, Type, Union
 import zipfile
 
+from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
+import gtamodel_tools.enums.validation.traffic.traffic as en_traffic
 
 ERR_MSG_NOT_HYPERNETWORK = "This method cannot be run on a hypernetwork."
 ERR_MSG_TRAFFIC_RESULTS = "Network with traffic results required."
@@ -35,6 +38,7 @@ TRANSIT_RESULTS_COLNAMES  = ['boardings', 'alightings', 'volume']
 EXPR_COLNAME = '_eval_'
 FLTR_COLNAME = '_filtered_'
 
+idx = pd.IndexSlice
 
 class Network(object):
     """ 
@@ -99,7 +103,6 @@ class Network(object):
 
     """
 
-
     def __init__(
             self, 
             nodes: gpd.GeoDataFrame,
@@ -107,11 +110,18 @@ class Network(object):
             tvehicles: pd.DataFrame,
             tlines: pd.DataFrame,
             tsegments: pd.DataFrame,
-            crs: str,
             coding_standard: str,
             has_traffic_results: bool,
             has_transit_results: bool
         ) -> None:
+        # Define columns as per coding standard
+        if coding_standard == 'ncs11':
+            import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
+        elif coding_standard == 'ncs16':
+            import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
+        elif coding_standard == 'ncs22':
+            import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
+        crs = en_ntcs.CRS
         self.nodes = nodes
         self.links = links
         self.tvehicles = tvehicles
@@ -119,30 +129,136 @@ class Network(object):
         self.tsegments = tsegments
         self.crs = crs
         self.coding_standard = coding_standard
-        self.has_traffic_results = has_traffic_results
-        self.has_transit_results = has_transit_results
 
-        self.is_hypernetwork = self._test_if_hypernetwork()
-
-        # Define columns as per coding standard
-        if coding_standard == 'ncs_11':
-            import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
-        elif coding_standard == 'ncs_16':
-            import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
-        elif coding_standard == 'ncs_22':
-            import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
+        self.min_regnode_id = en_ntcs.MIN_REGNODE_ID
+        self.auto_mode = en_ntcs.AUTO_MODE
         self.length_col = en_ntcs.LENGTH_COL
         self.modes_col = en_ntcs.MODES_COL
-        self.type_col = en_ntcs.TYPLE_COL
+        self.type_col = en_ntcs.TYPE_COL
         self.lanes_col = en_ntcs.LANES_COL
         self.vdf_col = en_ntcs.VDF_COL
         self.ffspd_col = en_ntcs.FFSPD_COL
         self.lanecap_col = en_ntcs.LANECAP_COL
-        if self.has_traffic_results:
+        if has_traffic_results:
+            self.has_traffic_results = has_traffic_results
             self.autovol_col = en_ntcs.AUTOVOL_COL
             self.autoaddvol_col = en_ntcs.AUTOADDVOL_COL
             self.autotime_col = en_ntcs.AUTOTIME_COL
+        if has_transit_results:
+            self.has_transit_results = has_transit_results
+        self.is_hypernetwork = self._test_if_hypernetwork()
 
+
+    def match_links_to_count_stations(self, stns: gpd.GeoDataFrame) -> None:
+        """ Modifies network links table by adding count stations.
+
+        Args:
+            stns: GeoPandas.GeoDataFrame
+                Count stations
+
+        """
+        PT_MAXSPACING = 50
+        BUFFER = 60   # metres
+        N_PTS_COL = 'n_pts'
+        N_INTSC_COL = 'n_intsc_pts'
+        PR_INTSC_COL = 'prop_intsc'
+        GEOM_COL = 'geometry'
+        MAX_ORIENTATION_DELTA = 30
+        
+        # Add fields to the links table to hold the match station
+        self.links[en_traffic.SOURCE] = ''
+        self.links[en_traffic.STN_ID] = ''
+        self.links[en_traffic.DIR] = ''
+        
+        # Limit to candidate links by using a sideways-only buffer
+        # Create a table of links and candidate count stations
+        fltr_hasautomode = self.links[
+            self.modes_col].str.contains(self.auto_mode)
+        fltr_not_connector = \
+            (self.links.index.get_level_values(0) >= self.min_regnode_id) & \
+            (self.links.index.get_level_values(1) >= self.min_regnode_id)
+        road_links = self.links.loc[fltr_hasautomode & fltr_not_connector]
+        stns2 = stns.to_crs(self.crs)
+        stns_buffer_geom = stns2.geometry.buffer(BUFFER, cap_style='flat')
+        stns_buffer = gpd.GeoDataFrame(stns2, geometry=stns_buffer_geom)
+        candidate_matches = stns_buffer.sjoin(road_links, how='inner')
+        candidate_matches = candidate_matches.rename({
+            'index_right0': 'i', 'index_right1': 'j'}, axis=1)
+        candidate_matches = candidate_matches[['i', 'j']].merge(
+            road_links[[GEOM_COL]], left_on=['i', 'j'],right_index=True)
+        candidate_matches = gpd.GeoDataFrame(
+            candidate_matches, geometry=candidate_matches[GEOM_COL])
+        candidate_match_stns = candidate_matches.index.unique()
+        candidate_matches = candidate_matches.reset_index()
+        candidate_matches = candidate_matches.set_index(
+            [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR, 'i', 'j'])
+        candidate_matches = candidate_matches.sort_index()
+        
+        for cmstn in candidate_match_stns:
+            # Get a buffer around the station
+            stn_geom = stns2.at[cmstn, GEOM_COL]
+            stn_buffer = stn_geom.buffer(BUFFER, cap_style='flat')
+
+            # Search for points along each link that lie within buffer
+            subset = candidate_matches.loc[idx[cmstn]].copy()
+            subset[N_PTS_COL] = 0
+            subset[N_INTSC_COL] = 0
+            for sbt_i, sbt in subset.iterrows():
+                vx, vy = sbt.geometry.segmentize(PT_MAXSPACING).xy
+                seg_pts = gpd.points_from_xy(vx, vy)
+                subset.at[sbt_i, N_PTS_COL] = len(seg_pts)
+                subset.at[sbt_i, N_INTSC_COL] = seg_pts.intersects(
+                    stn_buffer).sum()
+            if subset[N_INTSC_COL].max() == 0:
+                # No intersections found -- move on
+                continue
+            subset[PR_INTSC_COL] = subset[N_INTSC_COL] / subset[N_PTS_COL]
+            max_prop_intsc = subset[PR_INTSC_COL].max()
+            fltr_subset_max = (subset[PR_INTSC_COL] == max_prop_intsc)
+            # Find the first entry with the same orientation
+            stn_angle = calc_linestring_orientation(stn_geom, 0, 'angle')
+            for sbt_i, sbt in subset.loc[fltr_subset_max].iterrows():
+                lk_angle = calc_linestring_orientation(sbt.geometry, 0, 'angle')
+                if fabs(lk_angle - stn_angle) < MAX_ORIENTATION_DELTA:
+                    self.links.loc[
+                        sbt_i, idx[en_traffic.SOURCE, en_traffic.STN_ID, 
+                                   en_traffic.DIR]
+                        ] = cmstn
+                    break
+
+    def save_link_cntstation_mappings(self, fp: PathLike) -> None:
+        """ Output link mappings to csv file. 
+        
+        Args:
+            fp: File in which to save link mappings
+        """
+        fltr = self.links['source'] != ''
+        self.links.loc[
+                fltr, 
+                [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR]
+            ].to_csv(fp)
+
+
+    def read_and_apply_link_mappings(self, fp: PathLike) -> None:
+        """ 
+        Read previously calculated link mappings from a file and apply to links.
+
+        Args:
+            fp: File from which to read link mappings
+        """
+        mappings = pd.read_csv(
+            fp, index_col=self.links.index.names, dtype=str, na_values='')
+        stn_mapping_cols = [en_traffic.SOURCE, en_traffic.STN_ID, 
+                            en_traffic.DIR]
+        for col in stn_mapping_cols:
+            if col in self.links.columns:
+                raise RuntimeError(
+                    f'Cannot have {stn_mapping_cols} columns in links table '
+                    f'before merging in count station mapping.'
+                )
+        self.links = self.links.merge(
+            mappings, how='left', left_index=True, right_index=True)
+        self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
     
     def summarize_link_attrs(
             self, 
