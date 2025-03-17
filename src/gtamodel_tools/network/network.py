@@ -426,10 +426,10 @@ class Network(object):
                 - traffic count source
                 - traffic count direction
                 - count volume in column 'count_vol'
-                - model volume in column 'modelled_vol'
+                - model volume in column 'model_vol'
 
         """
-        modelvol_attr = 'modelled_vol'
+        modelvol_attr = 'model_vol'
         vdtnvol_attr = 'count_vol'
         if vol_to_compare == 'total':
             compare_expr = self.trafficvol
@@ -476,11 +476,11 @@ class Network(object):
                 - traffic count source
                 - traffic count direction
                 - count volume in column 'count_vol'
-                - model volume in column 'modelled_vol'
+                - model volume in column 'model_vol'
 
         """
         phf_inv = 1.0 / phf
-        modelvol_attr = 'modelled_vol'
+        modelvol_attr = 'model_vol'
         vdtnvol_attr = 'count_vol'
         if vol_to_compare == 'total':
             compare_expr = self.trafficvol

@@ -74,11 +74,13 @@ JURISDICTIONS_GTHA = [
     'City of Brampton',
     'City of Mississauga',
     'Town of Caledon',
+    'Regional Municipality of Peel',
     # Halton
     'Town of Milton',
     'Town of Oakville',
     'City of Burlington',
     'Town of Halton Hills', 
+    'Regional Municipality of Halton',
     # Hamilton
     'City of Hamilton',
     # Highways

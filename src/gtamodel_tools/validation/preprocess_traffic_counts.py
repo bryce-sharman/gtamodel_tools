@@ -433,6 +433,8 @@ def read_cordoncounts(cc_fp: PathLike) -> pd.DataFrame:
         lambda x: process_cc_timecol(x))
     df[en_traffic.TIME_END] = df[en_traffic.TIME_END].apply(
             lambda x: process_cc_timecol(x))
+    # Convert N, S, E, W to NB, SB, EB, WB
+    df[en_traffic.DIR] = df[en_traffic.DIR].apply(lambda x: x + 'B')
     
     # Determine the subset of columns in each category
     pass_car_cols = df.columns.intersection(en_cc.PASS_CAR_COLS)
