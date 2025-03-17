@@ -13,7 +13,7 @@ def areal_apportionment(
         to_gdf: gpd.GeoDataFrame, 
         columns: Optional[List[str]]=None, 
         tolerance: float=0.01
-    ) -> gpd.GeoDataFrame:
+    ) -> pd.DataFrame:
     """ Uses Areal apportionment to transfer data between zone systems.
 
     Areal apportionment assumes that where people live and work is evenly
@@ -38,11 +38,11 @@ def areal_apportionment(
         geometries. Overlaps of less than this will be ignored.
         
     Returns:
-    gpd.GeoDataFrame
-        GeoDataFrame containg `to_gdf` with apportioned 
+    pd.DataFrame
+        DataFrame containg `to_gdf` with apportioned 
         attributes from `from_gdf`. The apportioned columns are represented as 
-        floating point numbers. If desired, the ________ function
-        can be used to convert to integers based on regional totals. 
+        floating point numbers. If desired, the gis.data.round_to_totals
+        function can be used to convert to integers based on regional totals. 
     
     """
     # Reserved names
@@ -121,10 +121,10 @@ def areal_apportionment(
     # all the zones of the orginal to_gdf.
     for col in columns:
         union3[col] = union3[col] * union3[union_area_col] / union3[from_area_col]
-    to_gdf2 = union3.groupby(to_index_col)[columns].sum()
-    to_gdf2.index.name = to_gdf.index.name
-    to_gdf2 = to_gdf2.reindex(to_gdf.index, fill_value=0.0)
-    return to_gdf2
+    final_df = union3.groupby(to_index_col)[columns].sum()
+    final_df.index.name = to_gdf.index.name
+    final_df = final_df.reindex(to_gdf.index, fill_value=0.0)
+    return final_df.sort_index()
 
 
 
