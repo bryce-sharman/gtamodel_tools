@@ -135,7 +135,7 @@ class Network(object):
         # Limit to candidate links by using a sideways-only buffer
         # Create a table of links and candidate count stations
         fltr_hasautomode = self.links[
-            self.modes_col].str.contains(self.auto_mode)
+            self.modes].str.contains(self.auto_mode)
         fltr_not_connector = \
             (self.links.index.get_level_values(0) >= self.min_regnode_id) & \
             (self.links.index.get_level_values(1) >= self.min_regnode_id)
@@ -288,11 +288,6 @@ class Network(object):
                     kwargs['crosstab_columns'] + [self.linkclass]
             else:
                 kwargs['crosstab_columns'] = self.linkclass
-        print(expression)
-        print(include_connectors)
-        print(filter_expression)
-        print(node_aggr)
-        print(kwargs)
 
         return self._summarize_links(
             expression=expression, 
@@ -412,6 +407,104 @@ class Network(object):
             links[self.fltr_colname]].groupby(
                 crosstab_columns)[self.expr_colname].sum()       
 
+    def prepare_pkhr_link_validation_table(
+            self, 
+            pkhr_counts: pd.Series, 
+            vol_to_compare: str
+        ) -> pd.DataFrame:
+        """ Prepare a table comparing link volumes vs peak-hr traffic counts.
+
+        Args:
+            pkhr_counts: pd.Series containing peak-hr traffic counts,
+                such as produced by calc_wkday_pkhr_volume().
+            vol_to_compare: one of 'auto', 'total', or an expression
+                using link attributes.
+
+        Returns:
+            links pandas DataFrame with the following columns:
+                - link class
+                - traffic count source
+                - traffic count direction
+                - count volume in column 'count_vol'
+                - model volume in column 'modelled_vol'
+
+        """
+        modelvol_attr = 'modelled_vol'
+        vdtnvol_attr = 'count_vol'
+        if vol_to_compare == 'total':
+            compare_expr = self.trafficvol
+        elif vol_to_compare == 'auto':
+            compare_expr = self.autovol
+        else:
+            compare_expr = vol_to_compare
+
+        links = self.links.copy()
+        # Calculate modelled volume
+        links[modelvol_attr] = links.eval(compare_expr)  
+        # Merge in count volume
+        pkhr_counts = pkhr_counts.copy()
+        pkhr_counts.name = vdtnvol_attr
+        links = links.merge(
+            pkhr_counts,
+            left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
+            right_index=True
+        )
+        links = links.dropna(subset=[vdtnvol_attr])
+        return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
+                    modelvol_attr, vdtnvol_attr]]
+
+
+    def prepare_pkper_link_validation_table(
+            self, 
+            per_counts: pd.Series, 
+            phf: float, 
+            vol_to_compare: str
+        ) -> pd.DataFrame:
+        """ Prepare a table comparing link volumes vs period traffic counts.
+
+        Args:
+            per_counts: pd.Series containing peak-hr traffic counts,
+                such as produced by calc_wkday_pkhr_volume().
+            phf: peak-hour factor used by model to convert period to
+                peak-hour demand.
+            vol_to_compare: one of 'auto', 'total', or an expression
+                using link attributes.
+
+        Returns:
+            links pandas DataFrame with the following columns:
+                - link class
+                - traffic count source
+                - traffic count direction
+                - count volume in column 'count_vol'
+                - model volume in column 'modelled_vol'
+
+        """
+        phf_inv = 1.0 / phf
+        modelvol_attr = 'modelled_vol'
+        vdtnvol_attr = 'count_vol'
+        if vol_to_compare == 'total':
+            compare_expr = self.trafficvol
+        elif vol_to_compare == 'auto':
+            compare_expr = self.autovol
+        else:
+            compare_expr = vol_to_compare
+        compare_expr = '(' + compare_expr + f') * {phf_inv}'
+            
+        links = self.links.copy()
+        # Calculate modelled volume
+        links[modelvol_attr] = links.eval(compare_expr)  
+        # Merge in count volume
+        per_counts = per_counts.copy()
+        per_counts.name = vdtnvol_attr
+        links = links.merge(
+            per_counts,
+            left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
+            right_index=True
+        )
+        
+        links = links.dropna(subset=[vdtnvol_attr])
+        return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
+                    modelvol_attr, vdtnvol_attr]]
 
     # def summarize_link_attrs_along_screenlines(
     #         self,
