@@ -1,6 +1,7 @@
 import gtamodel_tools.common.spatial_aggregator as sa
 
 CRS = 'EPSG:26917'
+GRID_OFFSET = 17   # degrees
 
 LENGTH_COL = 'length'
 MODES_COL = 'modes'

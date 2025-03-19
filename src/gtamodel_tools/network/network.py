@@ -16,8 +16,7 @@ from math import fabs
 import numpy as np
 from os import PathLike
 import pandas as pd
-from pandas.api.types import is_string_dtype
-from typing import Callable, List, Hashable, Self, Tuple, Type, Union
+from typing import Dict, List, Hashable, Self, Type
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
@@ -69,14 +68,10 @@ class Network(object):
             import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
         elif coding_standard == 'ncs22':
             import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
-        crs = en_ntcs.CRS
-        self.nodes = nodes
-        self.links = links
-        self.tvehicles = tvehicles
-        self.tlines = tlines
-        self.tsegments = tsegments
-        self.crs = crs
         self.coding_standard = coding_standard
+        self.crs = en_ntcs.CRS
+        self.grid_offset = en_ntcs.GRID_OFFSET
+        self.link_dir_col = 'link_dir'
 
         self.min_regnode_id = en_ntcs.MIN_REGNODE_ID
         self.auto_mode = en_ntcs.AUTO_MODE
@@ -99,6 +94,12 @@ class Network(object):
             self.has_transit_results = has_transit_results
             self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
 
+        self.nodes = nodes
+        self.links = links
+        self.tvehicles = tvehicles
+        self.tlines = tlines
+        self.tsegments = tsegments
+
         self.err_msg_not_hypernetwork = "This method cannot be run on a hypernetwork."
         self.err_msg_no_traffic_results = "Network with traffic results required."
         self.err_msg_no_transit_results = "Network with transit results required."
@@ -109,6 +110,7 @@ class Network(object):
 
         self.is_hypernetwork = self._test_if_hypernetwork()
         self.apply_link_classification()
+        self.calculate_link_direction()
 
 
     def match_links_to_count_stations(self, stns: gpd.GeoDataFrame) -> None:
@@ -227,6 +229,14 @@ class Network(object):
         for k, v in self.linkclass_exprs.items():
             fltr = self.links[v['attr']].isin(v['values'])
             self.links.loc[fltr, self.linkclass] = k  
+
+    def calculate_link_direction(self) -> None:
+        """ 
+        Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
+        """
+        self.links[self.link_dir_col] = self.links.apply(
+            lambda x: calc_linestring_orientation(
+                x['geometry'], self.grid_offset, 'cartesian'), axis=1)
 
     def summarize_links(
             self,
@@ -407,69 +417,51 @@ class Network(object):
             links[self.fltr_colname]].groupby(
                 crosstab_columns)[self.expr_colname].sum()       
 
-    def prepare_pkhr_link_validation_table(
-            self, 
-            pkhr_counts: pd.Series, 
-            vol_to_compare: str
-        ) -> pd.DataFrame:
-        """ Prepare a table comparing link volumes vs peak-hr traffic counts.
-
+    def prepare_trafficvol_expr(self, vol_to_compare: str, phf: float) -> str:
+        """ 
+        Convert vol_to_compare to an expression that can be run in pandas.eval.
+        
         Args:
-            pkhr_counts: pd.Series containing peak-hr traffic counts,
-                such as produced by calc_wkday_pkhr_volume().
             vol_to_compare: one of 'auto', 'total', or an expression
                 using link attributes.
-
-        Returns:
-            links pandas DataFrame with the following columns:
-                - link class
-                - traffic count source
-                - traffic count direction
-                - count volume in column 'count_vol'
-                - model volume in column 'model_vol'
-
+            phf: peak-hour factor used by model to convert period to
+                peak-hour demand. If not specified then a peak-hour
+                validation is performed (equivalent to phf = 1.0).
+        
         """
-        modelvol_attr = 'model_vol'
-        vdtnvol_attr = 'count_vol'
+        if isinstance(phf, float) or isinstance(phf, int):
+            phf_inv = 1.0 / phf
+        else:
+            phf_inv = 1.0
+        
         if vol_to_compare == 'total':
             compare_expr = self.trafficvol
         elif vol_to_compare == 'auto':
             compare_expr = self.autovol
         else:
             compare_expr = vol_to_compare
-
-        links = self.links.copy()
-        # Calculate modelled volume
-        links[modelvol_attr] = links.eval(compare_expr)  
-        # Merge in count volume
-        pkhr_counts = pkhr_counts.copy()
-        pkhr_counts.name = vdtnvol_attr
-        links = links.merge(
-            pkhr_counts,
-            left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
-            right_index=True
-        )
-        links = links.dropna(subset=[vdtnvol_attr])
-        return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
-                    modelvol_attr, vdtnvol_attr]]
+        return f'({compare_expr}) * {phf_inv}'
 
 
-    def prepare_pkper_link_validation_table(
+    def prepare_link_validation_table(
             self, 
-            per_counts: pd.Series, 
-            phf: float, 
-            vol_to_compare: str
+            counts: pd.Series, 
+            vol_to_compare: str,
+            phf: float | None = None, 
         ) -> pd.DataFrame:
         """ Prepare a table comparing link volumes vs period traffic counts.
 
+        Links must be matched to count stations before running this method.
+
         Args:
-            per_counts: pd.Series containing peak-hr traffic counts,
-                such as produced by calc_wkday_pkhr_volume().
-            phf: peak-hour factor used by model to convert period to
-                peak-hour demand.
+            counts: pd.Series containing traffic counts against which,
+                the modelled volumes are to be compared. 
             vol_to_compare: one of 'auto', 'total', or an expression
                 using link attributes.
-
+            phf: peak-hour factor used by model to convert period to
+                peak-hour demand. If not specified then a peak-hour
+                validation is performed (equivalent to phf = 1.0).
+                
         Returns:
             links pandas DataFrame with the following columns:
                 - link class
@@ -479,66 +471,143 @@ class Network(object):
                 - model volume in column 'model_vol'
 
         """
-        phf_inv = 1.0 / phf
         modelvol_attr = 'model_vol'
         vdtnvol_attr = 'count_vol'
-        if vol_to_compare == 'total':
-            compare_expr = self.trafficvol
-        elif vol_to_compare == 'auto':
-            compare_expr = self.autovol
-        else:
-            compare_expr = vol_to_compare
-        compare_expr = '(' + compare_expr + f') * {phf_inv}'
+        compare_expr = self.prepare_trafficvol_expr(vol_to_compare, phf)
             
         links = self.links.copy()
         # Calculate modelled volume
         links[modelvol_attr] = links.eval(compare_expr)  
         # Merge in count volume
-        per_counts = per_counts.copy()
-        per_counts.name = vdtnvol_attr
+        counts = counts.copy()
+        counts.name = vdtnvol_attr
         links = links.merge(
-            per_counts,
+            counts,
             left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
             right_index=True
         )
-        
-        links = links.dropna(subset=[vdtnvol_attr])
         return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
                     modelvol_attr, vdtnvol_attr]]
 
-    # def summarize_link_attrs_along_screenlines(
-    #         self,
-    #         expression: str,
-    #         screenline_colname: str | list[str],
-    #     ) -> pd.DataFrame:
-    #     """ Summarize traffic volumes along a screenline.
-        
-    #     Arguments:
-    #         expression: str
-    #             Value to be aggregated. This is an expression that 
-    #             will be evaluatated using pandas.eval.
-    #         screenline_colname:
-    #             Column in links table defining the screenline.
-    #             Can be a single column name or a list of column names.
-    #     Returns:
-    #         pd.DataFrame
-    #             Summary table of traffic volumes, by screenline
+    def summarize_traffic_across_screenlines(
+            self,
+            screenlines: gpd.GeoSeries,
+            comparisons: Dict,
+        ) -> pd.DataFrame:
+        """ Summarize traffic volumes and capacity across screenlines:
+    
+        Args:
+            screenlines: gpd.GeoSeries with one row per screenline.
+                Index is considered as the screenline name while
+                the geometry defines the screenline.
+            comparisons: Dict
+                - key is the comparison name
+                - the value is another dictionary defined as follows:
+                    model_volumes: str 
+                        Can be one of:
+                        - 'auto': auto volumes only
+                        - 'total': total volumnes, or 
+                        - an expression using link attributes.
+                    counts: pd.Series
+                        Traffic counts against which, the modelled volumes 
+                        are to be compared.
+                    phf: float | None
+                        peak-hour factor used by model to convert period to
+                        peak-hour demand. If not specified then a peak-hour
+                        validation is performed (equivalent to phf = 1.0).
+        Returns:
+            pd.DataFrame
+                Outputs one row per combination of screenline and direction
+                that contains the following:
+                - n_links: number of links in direction
+                - n_lanes: total number of lanes crossing screenline
+                - capacity: total link capacity crossing screenline
+                - modelled_vol: modelled volume on all links
+                - n_obsv_links: number of links with counts
+                - n_obsv_lanes: number of lanes on links with counts
+                - link_porosity: proportion of observed links
+                - lane_porosity: proportion of observed lanes
+                - capacity_porosity: proportion of observed link capacity
+                - count: traffic counts on observed links
+                - obsv_modelled_vol: modelled volume on observed links
 
-    #     """
-    #     # see if we need traffic results and don't have them.
-    #     if not self.has_traffic_results:
-    #         if self._test_attrs_in_expression(
-    #                 expression, self.TRAFFIC_RESULTS_COLNAMES):
-    #             raise RuntimeError(self.ERR_MSG_TRAFFIC_RESULTS)
+    
+        """
+        linkcap_col = 'link_cap'
+        is_cntstn_col = 'is_cnt_stn'
+        model_vol_col = 'model_vol'
+        screenlines = screenlines.to_crs(self.links.crs)
+        for k_cmp, v_cmp in comparisons.items():
+            if 'phf' not in v_cmp.keys():
+                comparisons[k_cmp]['phf'] = None
 
-    #     #Evalulate expression
-    #     links = self.links.copy()
-    #     links[self.EXPR_COLNAME] = links.eval(expression)    
-    #     # Groupby screenline attribute
-    #     # Drop 0, as that will correspond to all links not on a screenline
-    #     result = links.groupby(screenline_colname)[self.EXPR_COLNAME].sum()
-    #     return result.drop(0, axis=0)
-        
+        # Prepare links table
+        links = self.links
+        links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
+        links[is_cntstn_col] = 0
+        links.loc[links[en_traffic.SOURCE] != '', is_cntstn_col] = 1
+        fltr_inode_is_cntrd = \
+            links.index.get_level_values('inode') < self.min_regnode_id
+        fltr_jnode_is_cntrd = \
+            links.index.get_level_values('jnode') < self.min_regnode_id
+        links = links.loc[(~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)]
+        results_list = []
+        for scrn_idx, scrn_row in screenlines.iterrows():
+            if 'index_right' in links.columns:
+                links = links.drop('index_right', axis=1)
+            screenline_gdf = gpd.GeoDataFrame(
+                geometry=[scrn_row.geometry],
+                index=[scrn_idx],
+                crs=screenlines.crs
+            )
+            links2 = links.sjoin(screenline_gdf)
+
+            for k_cmp, v_cmp in comparisons.items():
+                counts_col = f'{k_cmp}_counts'
+                modelvol_eval_str = self.prepare_trafficvol_expr(
+                    v_cmp['model_volumes'], v_cmp['phf'])
+                links2[model_vol_col] = links2.eval(modelvol_eval_str)
+                # Merge in the counts
+                counts = v_cmp['counts']
+                
+                counts.name = counts_col
+                links2 = links2.merge(
+                    v_cmp['counts'], how='left', 
+                    left_on=en_traffic.STN_INDEX_COLS, right_index=True,
+                )
+                all = links2.groupby(self.link_dir_col).agg({
+                    self.lanes: ['count', 'sum'], 
+                    linkcap_col: 'sum',
+                    model_vol_col: 'sum'
+                })
+                all.columns = ['n_links', 'n_lanes', 'capacity', 'modelled_vol']
+                
+                obsv_fltr = links2[en_traffic.SOURCE] != ''
+                links_obsv = links2.loc[obsv_fltr]
+                obsvd = links_obsv.groupby(self.link_dir_col).agg({
+                    self.lanes: ['count', 'sum'], 
+                    linkcap_col: 'sum',
+                    counts_col: 'sum', 
+                    model_vol_col: 'sum'
+                })
+                obsvd.columns = ['n_obsv_links', 'n_obsv_lanes', 'obsv_linkcap', 
+                                 'count', 'obsv_modelled_vol']
+                combined = pd.concat([all, obsvd], axis=1)
+                combined['link_porosity'] = \
+                    combined['n_obsv_links'] / combined['n_links']
+                combined['lane_porosity'] = \
+                    combined['n_obsv_lanes'] / combined['n_lanes']
+                combined['capacity_porosity'] = \
+                    combined['obsv_linkcap'] / combined['capacity']
+                combined = combined.reset_index()
+                combined['screenline'] = scrn_idx
+                combined['comparison'] = k_cmp
+                combined = combined.set_index(
+                    ['screenline', 'link_dir', 'comparison']).fillna(0)
+                results_list.append(combined)
+                
+        return pd.concat(results_list, axis=0)
+
 
     def summarize_transit_segments(
             self, 
