@@ -258,7 +258,7 @@ def summarize_table_with_spatial_aggregation(
         if not len(crosstabs) == len(crosstab_segments):
             raise ValueError("Number of crosstabs columns and "
                              "crosstab_segments must match.")
-                             
+    df = df.copy()  # to not mess with input DataFrame                
     aggr_colnames = []
     i = 1
     for zn, sa in zip(geom_id, spatial_aggregations):
