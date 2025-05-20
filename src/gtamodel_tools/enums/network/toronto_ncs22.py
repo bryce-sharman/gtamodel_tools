@@ -1,4 +1,4 @@
-import gtamodel_tools.common.spatial_aggregator as sa
+import pandas as pd
 
 CRS = 'EPSG:26917'
 GRID_OFFSET = 17   # degrees
@@ -53,9 +53,7 @@ LINK_CLASSIFICATION_EXPRS = {
 }
 
 
-ZONE_RANGES = sa.create_spatial_aggregator(
-        'custom_ranges', 
-        ranges=[
+ZONE_RANGES = [
             ('unassigned', 1, 999), 
             ('Toronto', 1000, 1999), 
             ('Durham', 2000, 2999),
@@ -76,14 +74,9 @@ ZONE_RANGES = sa.create_spatial_aggregator(
             ('Northumberland', 9300, 9399),
             ('Gateways', 9400, 9499),
             ('Stations', 9500, 9999)
-        ],
-        ids=range(0, 10000),
-        name='zone_regions',
-    )
+        ]
 
-node_ranges = sa.create_spatial_aggregator(
-        'custom_ranges', 
-        ranges=[
+NODE_RANGES = [
             ('centroid', 0, 9999), 
             ('Toronto', 10000, 19999), 
             ('Durham', 20000, 29999),
@@ -107,7 +100,25 @@ node_ranges = sa.create_spatial_aggregator(
             ('GO Rail platform',  98000, 98999),
             ('Hypernetwork nodes', 100000, 899999),
             ('HOV',  900000, 999999)
-        ],
-        ids=range(0, 1000000),
-        name='zone_regions',
+        ]
+
+TRANSIT_OPERATORS = pd.DataFrame.from_records(
+        columns=['operator', 'regex_expr'],
+        data = [
+            ('Durham', '^D'),
+            ('Burlington', '^HB'),
+            ('Oakville', '^HO'),
+            ('Milton', '^HM'),
+            ('Brampton', '^B'),
+            ('MiWay', '^M'),
+            ('Hamilton', '^W'),
+            ('YRT (not Viva)', '^Y^V'),
+            ('YRT (Viva)', '^YV'),
+            ('TTC (Subway)', '^TS'),
+            ('TTC (not Subway)', '^T^S'),
+            ('GO Bus', 'GB'),
+            ('GO Train', 'GT'),
+            ('Link Train', '^L')
+        ]
     )
+

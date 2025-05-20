@@ -97,7 +97,7 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
                 "CustomRangesSpatialAggregator must be defined using `name, "
                 "`ids` and `ranges` parameters."
             )
-        index = pd.Index(ids)
+        index = pd.Index(ids, dtype=np.uint32)
         s = pd.Series(index=index, data="", name=name)
         for r0, r1, r2 in ranges:
             r_label = r0

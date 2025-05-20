@@ -83,6 +83,7 @@ class Network(object):
         self.lanecap = en_ntcs.LANECAP_COL
         self.linkclass = 'link_class'
         self.linkclass_exprs = en_ntcs.LINK_CLASSIFICATION_EXPRS
+
         if has_traffic_results:
             self.has_traffic_results = has_traffic_results
             self.autovol = en_ntcs.AUTOVOL_COL
@@ -90,6 +91,8 @@ class Network(object):
             self.trafficvol = en_ntcs.TRAFFIC_VOL
             self.autotime = en_ntcs.AUTOTIME_COL
             self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
+        self.transit_operators = en_ntcs.TRANSIT_OPERATORS
+        self.transit_operators = self.transit_operators.set_index('operator')
         if has_transit_results:
             self.has_transit_results = has_transit_results
             self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
@@ -100,20 +103,34 @@ class Network(object):
         self.tlines = tlines
         self.tsegments = tsegments
 
-        self.err_msg_not_hypernetwork = "This method cannot be run on a hypernetwork."
-        self.err_msg_no_traffic_results = "Network with traffic results required."
-        self.err_msg_no_transit_results = "Network with transit results required."
+        self.err_msg_not_hypernetwork = \
+            "This method cannot be run on a hypernetwork."
+        self.err_msg_no_traffic_results = \
+            "Network with traffic results required."
+        self.err_msg_no_transit_results = \
+            "Network with transit results required."
         self.expr_colname = '_eval_'
         self.fltr_colname = '_filtered_'
-        self.zone_ranges = en_ntcs.ZONE_RANGES
-        self.node_ranges = en_ntcs.NODE_RANGES
 
-        self.is_hypernetwork = self._test_if_hypernetwork()
+        self.zone_ranges = sa.create_spatial_aggregator(
+            'custom_ranges', 
+            ranges=en_ntcs.ZONE_RANGES,
+            ids=self.nodes.loc[self.nodes['is_centroid']].index,
+            name='zone_regions'
+        )
+        self.node_ranges = sa.create_spatial_aggregator(
+            'custom_ranges', 
+            ranges=en_ntcs.NODE_RANGES,
+            ids=self.nodes.index,
+            name='zone_regions'
+        )
+
         self.apply_link_classification()
         self.calculate_link_direction()
 
 
-    def match_links_to_count_stations(self, stns: gpd.GeoDataFrame) -> None:
+    def match_links_to_auto_count_stations(
+            self, stns: gpd.GeoDataFrame) -> None:
         """ Modifies network links table by adding count stations.
 
         Args:
@@ -190,7 +207,7 @@ class Network(object):
                         ] = cmstn
                     break
 
-    def save_link_cntstation_mappings(self, fp: PathLike) -> None:
+    def save_link_auto_cntstation_mappings(self, fp: PathLike) -> None:
         """ Output link mappings to csv file. 
         
         Args:
@@ -202,7 +219,8 @@ class Network(object):
                 [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR]
             ].to_csv(fp)
 
-    def read_and_apply_link_mappings(self, fp: PathLike) -> None:
+    def read_and_apply_link_auto_cntstation_mappings(
+            self, fp: PathLike) -> None:
         """ 
         Read previously calculated link mappings from a file and apply to links.
 
@@ -608,230 +626,6 @@ class Network(object):
                 
         return pd.concat(results_list, axis=0)
 
-
-    def summarize_transit_segments(
-            self, 
-            expression: str,
-            filter_expression: str | None = None,
-            node_aggr: Type[sa.SpatialAggregator] | None = None,
-            ij_aggr: str | None = 'ijnodes',
-            crosstab_columns: str | List[str] | None = None
-        ) -> float | pd.DataFrame:
-        """ Summarizes an expression over a transit segment table.
-
-        Can optionally choose to:
-        - include connectors
-        - apply arbitrary filters.
-        - apply geographical aggregations
-        - include crosstab columns, in which case the expression is summarized 
-          for each segment. 
-
-        Arguments:
-            expression: str
-                Value to be aggregated. This is an expression that 
-                will be evaluatated using pandas.eval.
-            filter_expression: str | None
-                Defines transit segment filter using expression that will be  
-                evaluatated using pandas.eval. If None then no link filter is 
-                applied. Link, transit line and transit vehicle attributes can 
-                also be used. Default is None.
-            node_aggr: sa.SpatialAggregator or None
-                Spatial aggregation applied to nodes
-                If None, then all links are summarized together.
-                Default is None.
-            ij_aggr: str | None
-                Must be defined if node_aggr is defined. One of 'i_node', 
-                'j_node', 'ij_nodes'. If 'ij_nodes' is defined, then links
-                straddling aggregation regions will be included in a 
-                separate 'N/A' category.
-            crosstab_columns: str | List[str] | None = None
-                If None, will compute a single value per spatial aggregation
-                area. Otherwise will segment calculations by defined columns.
-                Default is None.
-
-        """
-        if self.is_hypernetwork:
-            raise RuntimeError(self.ERR_MSG_NOT_HYPERNETWORK)
-        # Look if traffic or transit results are required
-        if not self.has_traffic_results:
-            if self._test_attrs_in_expression(
-                    expression, self.traffic_results):
-                raise RuntimeError(self.ERR_MSG_TRAFFIC_RESULTS)
-        if not self.has_transit_results:
-            if self._test_attrs_in_expression(
-                    expression, self.traffic_results):
-                raise RuntimeError(self.ERR_MSG_TRANSIT_RESULTS)
-        if node_aggr is not None:
-            if ij_aggr not in ['inode', 'jnode', 'ijnodes']:
-                raise ValueError("Invalid parameter 'ij_aggr'.")
-    
-        # See if we need to merge in other tables
-        # Don't merge if we don't have to improve performance
-        tsegs = self.tsegments.reset_index()
-        link_cols = self.links.columns
-        if (self._test_attrs_in_expression(expression, link_cols) or 
-                self._test_attrs_in_expression(filter_expression, link_cols)):
-            tsegs = tsegs.merge(
-                self.links, left_on=['inode', 'jnode'], right_index=True)
-        tline_cols = self.tlines.columns
-        if (self._test_attrs_in_expression(expression, tline_cols) or 
-                self._test_attrs_in_expression(filter_expression, tline_cols)):
-            tsegs = tsegs.merge(
-                self.tlines, 
-                left_on=['line'], 
-                right_index=True, 
-                suffixes=['', '_l']
-            )
-        tveh_cols = self.tvehicles.columns
-        if (self._test_attrs_in_expression(expression, tveh_cols) or 
-                self._test_attrs_in_expression(filter_expression, tveh_cols)
-                ):
-            # 'veh' comes from the merged in transit line
-            tsegs = tsegs.merge(
-                self.tvehicles, 
-                left_on=['veh'], 
-                right_index=True, 
-                suffixes=['', '_v']
-            )
-
-        # Apply filter
-        tsegs[self.FLTR_COLNAME] = True
-        if filter_expression is not None:
-            tsegs[self.FLTR_COLNAME] = tsegs.eval(
-                filter_expression).astype(bool)
-
-        #Evalulate expression
-        tsegs[self.EXPR_COLNAME] = tsegs.eval(expression)     
-
-        # This is the simple case, no geographic or attribute segmentation     
-        if node_aggr is None and crosstab_columns is None:
-            return tsegs.loc[
-                tsegs[self.FLTR_COLNAME], self.EXPR_COLNAME].sum()
-        # Apply geographic segmentation to nodes, merging to tsegs as needed.
-        if node_aggr is not None:
-            aggr_colname = node_aggr().name
-            nodes = self.nodes.merge(
-                node_aggr(), how="inner", left_index=True, right_index=True)
-            if ij_aggr in ['inode', 'ijnodes']:
-                tsegs = tsegs.merge(
-                    nodes[[aggr_colname]], left_on='inode', right_index=True)
-            if ij_aggr in ['jnode', 'ijnodes']:
-                tsegs = tsegs.merge(
-                    nodes[[aggr_colname]], left_on='jnode', right_index=True,
-                    suffixes=['_i', '_j'])
-            if ij_aggr in ['jnode', 'ijnodes']:
-                tsegs = tsegs.merge(
-                    nodes[[aggr_colname]], left_on='jnode', right_index=True,
-                    suffixes=['_i', '_j'])
-            if ij_aggr == 'ijnodes':
-                # check for different node aggregations and set to 'N/A'
-                # note that suffixes are applied in this case.
-                tsegs[aggr_colname] = 'N/A'
-                fltr = tsegs[aggr_colname + '_i'] == tsegs[aggr_colname + '_j']
-                tsegs.loc[fltr, aggr_colname] = tsegs.loc[
-                    fltr, aggr_colname + '_i']
-            # Now the geographical segmentation is prepared, treat
-            # it the same as all others. 
-            if crosstab_columns is None:
-                crosstab_columns = [aggr_colname]
-            elif isinstance(crosstab_columns, list):
-                crosstab_columns = [aggr_colname] + crosstab_columns
-            else:
-                crosstab_columns=[aggr_colname, crosstab_columns]
-        return tsegs.loc[
-            tsegs[self.FLTR_COLNAME]].groupby(
-                crosstab_columns)[self.EXPR_COLNAME].sum()      
-
-    def collapse_hypernetwork(
-            self, aggregation_rules: dict) -> Self:
-        """ Returns a new EmmeNetwork with equivalent single-layer network. 
-        
-        Arguments:
-            aggregation_rules: dict
-                Dictionary containing aggregration rules of extra
-                attributes to apply when simplifying
-                to a collapsed network. Expected keys include:'nodes', 'links',
-                'transit_segments'.
-                Under each key is another dictionary containing the attribute
-                (or column) name and aggregation function to be applied 
-                in a pandas.groupby.aggregate. See
-                https://pandas.pydata.org/docs/reference/api/pandas.core.groupby.DataFrameGroupBy.aggregate.html
-                Default is 'first'.
-
-        Returns:
-        EmmeNetwork:
-            EmmeNetwork with collapsed hypernetwork.
-    
-        Notes:
-            Transit lines do not appear to be modified in a hypernetwork, 
-            we can leave unchanged.
-        
-        """
-    
-        # Complete the aggregation rules dictionary
-        for key in ['nodes', 'links', 'transit_segments']:
-            if key not in aggregation_rules:
-                aggregation_rules[key] = {}
-        aggregation_rules['nodes'] = self._complete_aggregation_dictionary(
-            self.nodes, aggregation_rules['nodes'])
-        aggregation_rules['links'] = self._complete_aggregation_dictionary(
-            self.links, aggregation_rules['links'])
-        aggregation_rules['transit_segments'] = \
-            self._complete_aggregation_dictionary(
-                self.tsegments, aggregation_rules['transit_segments'])
-        if self.has_traffic_results:
-            aggregation_rules['links']['auto_volume'] = 'sum'
-            aggregation_rules['links']['additional_volume'] = 'sum'
-            aggregation_rules['links']['auto_time'] = 'max'
-        if self.has_transit_results:
-            aggregation_rules['transit_segments']['boardings'] = 'sum'
-            aggregation_rules['transit_segments']['alightings'] = 'sum'
-            aggregation_rules['transit_segments']['volume'] = 'sum'
-            
-        
-        new_network = deepcopy(self)
-        if not self.is_hypernetwork:
-            return new_network
-    
-        # Merge the base node into the links table and map hypernetwork nodes to 
-        # base network nodes, this forms the basis of all following steps.
-        links = self._merge_link_basenodes()
-        hypntwk_node_mappings = self._find_hypernetwork_node_mapping(links)
-
-        # Now collapse all the tables
-        new_network.links = self._collapse_links(
-            links, aggregation_rules['links'])
-        new_network.nodes = self._collapse_nodes(
-            hypntwk_node_mappings, aggregation_rules['nodes'])
-        new_network.tsegments = self._collapse_tsegments(
-            hypntwk_node_mappings, aggregation_rules['transit_segments'])
-        new_network.is_hypernetwork = False
-        return new_network
-
-#endregion
-#region Helper functions
-    def _test_if_hypernetwork(self) -> bool:
-        """ Look for overlapping links, indicating this is a hypernetwork. """
-        links = self.links.reset_index()   
-        links = links.merge(
-            self.nodes[['x', 'y']], 
-            how='left', 
-            left_on='inode', 
-            right_index=True)
-        links = links.merge(
-            self.nodes[['x', 'y']], 
-            how='left', 
-            left_on='jnode', 
-            right_index=True, 
-            suffixes=['_i', '_j']
-        )
-        n_links = links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])['inode'].count()
-        n_links.name = 'n_links'
-        if n_links.max() > 1:
-            return True
-        else:
-            return False
-    
     @staticmethod
     def _test_attrs_in_expression(expr: str | None, attributes: List):
         """ Check if attributes are in an expression. """
@@ -878,105 +672,265 @@ class Network(object):
             links = links.set_index(['inode', 'jnode'])
         return links.drop(['is_centroid_i', 'is_centroid_j'], axis=1)
 
-    def _collapse_tsegments(
-        self,
-            hypntwk_node_mappings: pd.Series, 
-            aggregation_rules: dict, 
-        ) -> pd.DataFrame:
-        """ Creates new transit segment table collapsing results to base level.
-    
-        All transit segment are aggregated as per aggregation_rules argument.
-    
-        Arguments:
-            hypntwk_node_mappings: pd.Series
-                Mapping of hypernetwork nodes to base network nodes.
-            aggregation_rules: dict
-                Dictionary containing aggregration rules to apply when 
-                simplifying to a collapsed network to be applied in a 
-                pandas.groupby.aggregate. Must contain an entry for all columns. 
-    
-        Returns:
-            pd.DataFrame
-                Collapsed transit segment table.
-        """
-        tsegments = self.tsegments.reset_index()
-        for orig_col, base_col in [
-            ['inode','base_inode'], ['jnode', 'base_jnode']]:
-            tsegments[base_col] = tsegments[orig_col].map(hypntwk_node_mappings)
-            fltr = pd.isna(tsegments[base_col])
-            tsegments.loc[fltr, base_col] = tsegments.loc[fltr, orig_col]
-            tsegments[base_col] = tsegments[base_col].astype(np.int64)
 
-        tsegments_final = tsegments.groupby(
-            ['line', 'base_inode', 'base_jnode', 'loop']).aggregate(
-                aggregation_rules)
-        tsegments_final.index.names = ['line', 'inode', 'jnode', 'loop']
-        # Revert to original column order
-        tsegments_final = tsegments_final[self.tsegments.columns]
-        return tsegments_final
+#region Transit
+
+
+    def create_corridor_profiles(
+            self, transit_lines: str | List[str]) -> pd.DataFrame:
+        """
+        Creates a transit profile along all links of the selected lines
+        that form a transit corridor, summing boardings, alightings and 
+        volumes on input lines.
+
+        Args:
+            - transit_lines: str | List[str]
+        
+        """
+
+
+    def summarize_transit_segments(
+            self, 
+            expression: str,
+            filter_expression: str | None = None,
+            node_aggr: Type[sa.SpatialAggregator] | None = None,
+            crosstab_columns: str | List[str] | None = None
+        ) -> float | pd.DataFrame:
+        """ 
+        Summarizes an expression over a transit segment table.
+
+        Can optionally choose to:
+        - apply arbitrary filters.
+        - apply geographical aggregations
+        - include crosstab columns, in which case the expression is summarized 
+          for each segment. 
+
+        Arguments:
+            expression: str
+                Value to be aggregated. This is an expression that 
+                will be evaluatated using pandas.eval.
+            filter_expression: str | None
+                Defines transit segment filter using expression that will be  
+                evaluatated using pandas.eval. If None then no filter is 
+                applied. Link, transit line and transit segment and transit 
+                vehicle attributes can be specified. Default is None.
+            node_aggr: sa.SpatialAggregator or None
+                Spatial aggregation applied to nodes. All segment attributes
+                are aggregated at the I-node. If None, then values from all 
+                segments are summarized together. Default is None.
+            crosstab_columns: str | List[str] | None = None
+                If None, will compute a single value per spatial aggregation
+                area. Otherwise will segment calculations by defined columns.
+                Default is None.
+
+        """
+        def test_attrs_in_expr_or_filter(expression, filter_expression, cols):
+            return (self._test_attrs_in_expression(expression, cols) or 
+                self._test_attrs_in_expression(filter_expression, cols))
+
+        # Test if transit line, transit vehicle or link attributes are 
+        # defined in either the expression or the filter
+        reqs_transit_results = test_attrs_in_expr_or_filter(
+            expression, filter_expression, self.transit_results)
+        reqs_traffic_results = test_attrs_in_expr_or_filter(
+            expression, filter_expression, self.traffic_results)
+        reqs_links_columns = test_attrs_in_expr_or_filter(
+            expression, filter_expression, self.links.columns)
+        reqs_tlines_columns = test_attrs_in_expr_or_filter(
+            expression, filter_expression, self.tlines.columns)
+        reqs_tvehs_columns = test_attrs_in_expr_or_filter(
+            expression, filter_expression, self.tvehicles.columns)
+
+        if reqs_traffic_results and not self.has_traffic_results:
+            raise RuntimeError(self.err_msg_no_traffic_results)
+        if reqs_transit_results and not self.has_transit_results:
+            raise RuntimeError(self.err_msg_no_transit_results)
+
+        # Test if trying to perform node aggregation on a hypernetwork
+        if node_aggr is not None and self.is_hypernetwork:
+            raise RuntimeError(
+                'Cannot perform transit summaries with node aggregations on a '
+                'hypernetwork. Collapse network before running summary.')
+
+        # Merge in required tables to the transit segments
+        tsegs = self.tsegments.reset_index()
+        if reqs_links_columns:
+            tsegs = tsegs.merge(
+                self.links, left_on=['inode', 'jnode'], right_index=True)
+        if reqs_tlines_columns or reqs_tvehs_columns:
+            # Transit vehicles are defined in the 'veh' transit line field
+            tsegs = tsegs.merge(
+                self.tlines, left_on=['line'], 
+                right_index=True, suffixes=['', '_l'])
+            if reqs_tvehs_columns:
+                tsegs = tsegs.merge(
+                    self.tvehicles, left_on=['veh'], 
+                    right_index=True, suffixes=['', '_v'])
+                
+        # Apply filter if defined
+        tsegs[self.fltr_colname] = True
+        if isinstance(filter_expression, str):
+            tsegs[self.fltr_colname] = \
+                tsegs.eval(filter_expression).astype(bool)
+        tsegs = tsegs.loc[tsegs[self.fltr_colname]]
+
+        #Evalulate expression
+        tsegs[self.expr_colname] = tsegs.eval(expression)   
+
+        if node_aggr is None and crosstab_columns is None:
+            # This is the simple case, no spatial aggregation   
+            return tsegs[self.expr_colname].sum()
+        else:
+            # Merge in geographic segmentation
+            aggregation_columns = []
+            if node_aggr is not None:
+                aggr_colname = node_aggr().name
+                nodes = self.nodes.merge(
+                    node_aggr(), how="inner", left_index=True, right_index=True)
+                tsegs = tsegs.merge(
+                    nodes[[aggr_colname]], left_on='inode', right_index=True)
+                if crosstab_columns is not None:
+                    aggregation_columns = [aggr_colname] + crosstab_columns
+            else:
+                aggregation_columns = crosstab_columns
+            return tsegs.groupby(
+                aggregation_columns)[self.EXPR_COLNAME].sum()      
+
+
+    def _test_if_hypernetwork(self) -> bool:
+        """ Look for overlapping links, indicating this is a hypernetwork. """
+        links = self.links.reset_index()   
+        links = links.merge(
+            self.nodes[['x', 'y']], 
+            how='left', 
+            left_on='inode', 
+            right_index=True)
+        links = links.merge(
+            self.nodes[['x', 'y']], 
+            how='left', 
+            left_on='jnode', 
+            right_index=True, 
+            suffixes=['_i', '_j']
+        )
+        n_links = links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])['inode'].count()
+        n_links.name = 'n_links'
+        if n_links.max() > 1:
+            return True
+        else:
+            return False
+
+#endregion
+
+#region Collapse Hypernetwork
+    def collapse_hypernetwork(
+            self, aggregation_rules: dict | None=None) -> Self:
+        """ Returns a new EmmeNetwork with equivalent single-layer network. 
+        
+        Arguments:
+            aggregation_rules: optional Dict
+                Optional dictionary containing aggregration rules to apply when 
+                collapsing network. If specified, expected keys are 'nodes'
+                and 'links'. Under each key is another dictionary containing 
+                the attribute (or column) name and aggregation function to be applied 
+                in a pandas.groupby.aggregate. See
+                https://pandas.pydata.org/docs/reference/api/pandas.core.groupby.DataFrameGroupBy.aggregate.html
+                Default is 'sum' for link 'volume' and 'additional_volume'
+                columns; otherwise 'first'.
+
+        Returns:
+            EmmeNetwork:
+                EmmeNetwork with collapsed hypernetwork.
+        
+        Notes:
+            Transit lines do not appear to be modified in a hypernetwork, 
+            we can leave unchanged.
+        
+        """
+        agrls = self._create_aggregation_dictionary(aggregation_rules)
+        new_network = deepcopy(self)
+        if not self.is_hypernetwork:
+            return new_network
+
+        # Create a working links table by identifying and merging in
+        # base network nodes
+        links = self._merge_link_basenodes()
+        
+        # Create node mapping from the working links table
+        inode_mapping = links[['inode', 'base_inode']]
+        inode_mapping .columns = ['node', 'base_node']
+        jnode_mapping = links[['jnode', 'base_jnode']]
+        jnode_mapping .columns = ['node', 'base_node']
+        node_mappings = pd.concat([inode_mapping, jnode_mapping], axis=0)
+        node_mappings = node_mappings.drop_duplicates().set_index(
+            'node').squeeze().sort_index()
+        
+        # Use working links and node mappings to produce collapsed network
+        new_network.links = self._collapse_links(links, agrls['links'])
+        new_network.nodes = self._collapse_nodes(node_mappings, agrls['nodes'])
+        new_network.tsegments = self._collapse_tsegments(node_mappings)
+        return new_network
+
+    @staticmethod
+    def _add_default_aggr_dict_cols(
+            aggr_rules: dict, df_cols: pd.Index, results_cols: List | None,
+        ) -> Dict:
+        user_setcols = list(aggr_rules.keys())
+        aggr_rules2 = {}
+        for c in df_cols:
+            if c in user_setcols:
+                aggr_rules2[c] = aggr_rules[c]
+            elif c in results_cols:
+                aggr_rules2[c] = 'sum'
+            else:
+                aggr_rules2[c] = 'first'
+        return aggr_rules2
+
+    def _create_aggregation_dictionary(self, agg_rules: dict | None) -> Dict:
+        if agg_rules is None:
+            agg_rules = {}
+        if 'nodes' not in agg_rules.keys():
+            agg_rules['nodes'] = {}
+        if 'links' not in agg_rules.keys():
+            agg_rules['links'] = {}
+        # Complete the aggregation rules dictionary
+        agg_rules['nodes'] = self._add_default_aggr_dict_cols(
+            agg_rules['nodes'], self.nodes.columns, [])
+        agg_rules['links'] = self._add_default_aggr_dict_cols(
+            agg_rules['links'], self.links.columns, [
+                'auto_volume', 'additional_volume'])
+        return agg_rules
 
     def _collapse_links(
-            self, 
-            links: pd.DataFrame, 
-            aggregation_rules: dict
-        ) -> pd.DataFrame:
-        """Produces a new links table without the hypernetwork links.
-        
-        All link attributes are aggregated as per aggregation_rules argument.
-    
-        Arguments:
-            links: pd.DataFrame
-                Links table with the merged base nodes.
-            aggregation_rules: dict
-                Dictionary containing aggregration rules to apply when 
-                simplifying to a collapsed network to be applied in a 
-                pandas.groupby.aggregate. Must contain an entry for all columns. 
-    
-        Returns:
-            pd.DataFrame
-                modified links table
-        
-        """
-        links2 = links.groupby(['base_inode', 'base_jnode']).aggregate(
-            aggregation_rules)
-        # Go back to the original column order
-        links2 = links2[self.links.columns]
-        links2.index.names = ['inode', 'jnode']
+            self, links: pd.DataFrame, agrls: Dict) -> pd.DataFrame:
+        """ Produces collapsed link table.  """
+        fltr = links['base_inode'] != links['base_jnode']
+        links2 = links.loc[fltr].groupby(
+            ['base_inode', 'base_jnode']).aggregate(agrls)
+        links2.index.names = self.links.index.names
         return links2
     
     def _collapse_nodes(
-            self, 
-            hypntwk_node_mappings: pd.Series, 
-            aggregation_rules: dict, 
-        ) -> pd.DataFrame:
-        """ Produces a new nodes table without the hypernetwork nodes.
-    
-        All node attributes are aggregated as per aggregation_rules argument.
-    
-        Arguments:
-            hypntwk_node_mappings: pd.Series
-                Mapping of hypernetwork nodes to base network nodes.
-            aggregation_rules: dict
-                Dictionary containing aggregration rules to apply when 
-                simplifying to a collapsed network to be applied in a
-                pandas.groupby.aggregate. Must contain an entry for all columns. 
-    
-        Returns:
-            pd.DataFrame
-                Collapsed node table
-    
-        """    
+            self, node_mappings: pd.Series, agrls: Dict) -> pd.DataFrame:
+        """ Produces collapsed node table. """
         nodes = self.nodes.reset_index()
-        nodes['new_node'] = nodes['node'].map(hypntwk_node_mappings)
-        fltr = pd.isna(nodes['new_node'])
-        nodes.loc[fltr, 'new_node'] = nodes.loc[fltr, 'node']
-        nodes['new_node'] = nodes['new_node'].astype(np.int64)
-       
-        nodes_final = nodes.groupby('new_node').aggregate(aggregation_rules)
-        # Revert to original column order
-        nodes_final = nodes_final[self.nodes.columns]
-        return nodes_final
+        nodes['new_node'] = nodes['node'].map(node_mappings)
+        nodes2 = nodes.groupby('new_node').aggregate(agrls)
+        nodes2.index.name = self.nodes.index.name
+        return nodes2
     
+    def _collapse_tsegments(self, node_mappings: pd.Series) -> pd.DataFrame:
+        """ Produces transit segment table using collapsed links.  
+        
+        Note that this function involves simply swapping out the base network
+        node ids, switching the links to the base network links. 
+        
+        """
+        tsegments = self.tsegments.reset_index()
+        tsegments['inode'] = tsegments['inode'].map(node_mappings)
+        tsegments['jnode'] = tsegments['jnode'].map(node_mappings)
+        tsegments = tsegments.set_index(self.tsegments.index.names)
+        return tsegments
+
     def _merge_link_basenodes(self) -> pd.DataFrame:
         """ Merges base nodes for link i_nodes and j_nodes into links table. 
             
@@ -987,91 +941,90 @@ class Network(object):
                 further operations on the returned links table.
             
         """
+        # Objective is to return a dataframe of x and y locations
+        # for all non-hyper-network links.
+
+        # Merge x and y coordinates to all links in the network
         links = self.links.reset_index()   
+        n_links_before_merge = len(links)
+        links = links.merge(
+            self.nodes[['x', 'y']], left_on='inode', right_index=True)
         links = links.merge(
             self.nodes[['x', 'y']], 
-            how='left', 
-            left_on='inode', 
-            right_index=True
-        )
-        links = links.merge(
-            self.nodes[['x', 'y']], 
-            how='left', 
             left_on='jnode', 
             right_index=True, 
             suffixes=['_i', '_j']
         )
-        # Get the base (non-hyper network) link
-        # hypernetworks are always added at the end, so identify base using the minimum value
-        base_link = links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])[
-            ['inode', 'jnode']].min()
-        base_link.columns = ['base_inode', 'base_jnode']
-        # Now merge in the base link and the number of links
+        if len(links) != n_links_before_merge:
+            raise RuntimeError('Length change after merging node coordinates.')
+
+        # Only keep non-hypernetwork links
+        fltr = self.node_ranges() != 'Hypernetwork nodes'
+        non_hypntwk_nodes = self.node_ranges().loc[fltr]
+        non_hypntwk_nodes = self.nodes.loc[non_hypntwk_nodes.index].index
+        base_links = links.loc[
+            (links['inode'].isin(non_hypntwk_nodes)) & 
+            (links['jnode'].isin(non_hypntwk_nodes))
+        ]
+        # Groupby X and Y coordinates
+        base_links = base_links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])[
+            ['inode', 'jnode']].first()
+        base_links.columns = ['base_inode', 'base_jnode']
+
+        # Now merge in the base link to the links hyper-network
+        # Doing a left merge to keep all links. 
+        # Note that links that transfer between hyper-network layers are not 
+        # merged as there is no base-network-only equivalent for these links.
         links = links.merge(
-            base_link, left_on=['x_i', 'y_i', 'x_j', 'y_j'], right_index=True)
+            base_links, 
+            how='left', 
+            left_on=['x_i', 'y_i', 'x_j', 'y_j'], 
+            right_index=True
+        )
+        if len(links) != n_links_before_merge:
+            raise RuntimeError(
+                'Length change after merging in base I and J nodes.')
+        
+        # Deal with the base-to-hyper-network transfer links
+        fltr_tlinks = \
+            pd.isna(links['base_inode']) | pd.isna(links['base_jnode'])
+        if np.any(
+                (links.loc[fltr_tlinks, 'x_i'] != links.loc[fltr_tlinks, 'x_j']) | 
+                (links.loc[fltr_tlinks, 'y_i'] != links.loc[fltr_tlinks, 'y_j'])
+            ):
+            raise RuntimeError(
+                'Non base-to-hypernetwork transfer links were not '
+                'merged in links to base_network links merge.')
+        # Need to find the base nodes in these cases. Note that if there are
+        # 3+ layers in the hypernetwork, then there are links where neither
+        # their I or J nodes are in the network
+        # Make sure that we have all transfer nodes by including I and J nodes
+        inodes = links[['inode', 'x_i', 'y_i']]
+        inodes.columns = ['node_id', 'x', 'y']
+        jnodes = links[['jnode', 'x_j', 'y_j']]
+        jnodes.columns = ['node_id', 'x', 'y']
+        tnodes = pd.concat([inodes, jnodes], axis=0)
+        tnodes = tnodes.drop_duplicates()
+        tnodes = tnodes.sort_values('node_id')
+        # Identify base-network nodes
+        base_tnodes = tnodes.loc[tnodes['node_id'].isin(non_hypntwk_nodes)]
+        # Merge in the base transfer node by X and Y location
+        tnodes2 = tnodes.merge(
+            base_tnodes, how='left', on=['x', 'y'], suffixes=['', '_b'])
+        tnodes2 = tnodes2.drop(['x', 'y'], axis=1).set_index(
+            'node_id').squeeze()
+        # Use a mapping to apply the base node (easier than a merge)
+        links.loc[fltr_tlinks, 'base_inode'] = links.loc[
+            fltr_tlinks, 'inode'].map(tnodes2)
+        links.loc[fltr_tlinks, 'base_jnode'] = links.loc[
+            fltr_tlinks, 'jnode'].map(tnodes2)
+
+        # Now clean up the links table for all links
         links = links.drop(['x_i', 'y_i', 'x_j', 'y_j'], axis=1)
+        links['base_inode'] = links['base_inode'].astype(np.uint32)
+        links['base_jnode'] = links['base_jnode'].astype(np.uint32)
         return links
     
-    def _find_hypernetwork_node_mapping(
-            self, links_df: pd.DataFrame) -> pd.Series:
-        """ From the links table, find all nodes that are hypernetwork nodes. 
-    
-        Arguments:
-            links_df: pd.DataFrame
-                Links table with the merged base nodes, 
-                created by _merge_link_basenodes.
-        
-        Returns
-            pd.Series
-                Index is the node ID in the hypernetwork, value is the 
-                corresponding base node ID.
-            
-        """
-        # Get a list of the nodes to be removed from the final nodes file 
-        # looking at both I nodes and J nodes.
-        collapse_inodes = links_df.loc[
-                links_df['inode'] != links_df['base_inode']
-            ][['inode', 'base_inode']]
-        collapse_inodes.columns = ['nodeid', 'base_nodeid']
-        collapse_jnodes = links_df.loc[
-                links_df['jnode'] != links_df['base_jnode']
-            ][['jnode', 'base_jnode']]
-        collapse_jnodes.columns = ['nodeid', 'base_nodeid']
-        nodes_to_remove = pd.concat(
-                [collapse_inodes, collapse_jnodes], 
-                axis=0, 
-                ignore_index=True
-            ).drop_duplicates().set_index('nodeid').squeeze()
-        nodes_to_remove.name = 'new_node'
-        return nodes_to_remove
-    
-    def _complete_aggregation_dictionary(
-            df: pd.DataFrame,
-            aggregations: dict
-        ) -> dict:
-        """ Complete aggregation dictionary for all columns in a dataframe.
-        
-        Arguments:
-            df: Dataframe for which to create the dictionary.
-            aggregations: dict
-                Original dictionary specifying aggregations in 
-                GroupBy.aggregations function
-    
-        Returns:
-            dict
-                Modifified dictionary containing all columns. All entries
-                not in the original dictionary are assigned 'first', which keeps
-                the initial value (of least least the first entry) 
-                during the aggregation.
-        
-        """
-        for column in df.columns:
-            if column not in aggregations:
-                aggregations[column] = 'first'
-        return aggregations
-
-
-
 #endregion
 
 #region properties
@@ -1087,5 +1040,9 @@ class Network(object):
     @property
     def congested_filter_extr(self) -> str:
         return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
+
+    @property
+    def is_hypernetwork(self) -> bool:
+        return self._test_if_hypernetwork()
 
 #endregion

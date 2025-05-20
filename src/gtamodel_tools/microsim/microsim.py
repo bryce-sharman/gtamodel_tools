@@ -169,7 +169,7 @@ class MicroSim():
                     "Invalid time period. If defined, must be one of: "
                     f"{list(self._time_period_definitions.keys())}")
             tripmodes_filter_expr = self._apply_timeperiod_filter(
-                self, time_period, tripmodes_filter_expr)
+                time_period, tripmodes_filter_expr)
 
         # We always have to merge trips and tripmodes
         trips = data.apply_dataframe_filter(

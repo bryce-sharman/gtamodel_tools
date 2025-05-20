@@ -124,9 +124,9 @@ def read_emme_network_from_nwp(
     tlines = tlines.rename(TLINECOLS_RENAME, axis=1)
 
     tsegments = tsegments.rename(TSEGCOLS_RENAME, axis=1)
-    print("Merging in transit segments results")
     try:
-        results = read_nwp_transit_segment_results(nwp_fp)
+        results = read_nwp_transit_segment_results(
+            nwp_fp, tsegments)
         tsegments = tsegments.merge(
             results[['boardings', 'alightings', 'volume']], 
             how='left', 
@@ -136,7 +136,6 @@ def read_emme_network_from_nwp(
         has_transit_results = True
     except KeyError:
         has_transit_results = False
-
     return Network(
         nodes, links, tvehicles, tlines, tsegments, coding_standard, 
         has_traffic_results, has_transit_results
@@ -496,97 +495,39 @@ def read_nwp_transit_network(nwp_fp: Union[str, PathLike]) -> Tuple[pd.DataFrame
     return transit_lines, transit_segs
 
 
-def read_nwp_transit_result_summary(nwp_fp: Union[str, PathLike], *, parse_line_id: bool = True) -> pd.DataFrame:
-    """A function to read and summarize the transit assignment boardings and max volumes from a Network Package file
-    (exported from Emme using the TMG Toolbox) by operator and route.
+
+
+
+def read_nwp_transit_segment_results(
+        nwp_fp: Union[str, PathLike], segments: pd.DataFrame) -> pd.DataFrame:
+    """
+    A function to read and summarize the transit segment boardings, alightings, 
+    and volumes from a Network Package file (exported from Emme using the 
+    TMG Toolbox).
 
     Args:
         nwp_fp (str | PathLike): File path to the network package.
-        parse_line_id (bool, optional): Defaults to ``True``. Option to parse operator and route IDs from line IDs.
-            Please note that transit line IDs must adhere to the TMG NCS16 for this option to work properly.
+        segments: pd.DataFrame, segments read in using read_nwp_transit_network
 
     Returns:
         pd.DataFrame
     """
+    segments = segments.copy()   # To not modify input DataFrame
     nwp_fp = Path(nwp_fp)
     if not nwp_fp.exists():
         raise FileNotFoundError(f'File `{nwp_fp.as_posix()}` not found.')
 
     with zipfile.ZipFile(nwp_fp) as zf:
-        data_types = {'line': str, 'transit_boardings': float, 'transit_volume': float}
-        df = pd.read_csv(zf.open('segment_results.csv'), usecols=data_types.keys(), dtype=data_types)
-        if parse_line_id:
-            operator, route = parse_tmg_ncs_line_id(df['line'])
-            df['operator'] = operator
-            df['route'] = route.str.zfill(route.str.len().max())  # Pad with 0s for groupby sorting purposes
-            df = df.groupby(['operator', 'route'], as_index=False).agg({'transit_boardings': 'sum', 'transit_volume': 'sum'})
-            df['route'] = df['route'].str.lstrip('0')  # Remove 0s padding
-            df.set_index(['operator', 'route'], inplace=True)
-        else:
-            df.set_index('line', inplace=True)
-        df.rename(columns={'transit_boardings': 'boardings', 'transit_volume': 'total_volume'}, inplace=True)
-
-    return df
-
-
-def read_nwp_transit_station_results(nwp_fp: Union[str, PathLike], station_line_nodes: List[int]) -> pd.DataFrame:
-    """A function to read and summarize the transit boardings (on) and alightings (offs) at stations from a Network
-    Package file (exported from Emme using the TMG Toolbox).
-
-    Note:
-        Ensure that station nodes being specified are on the transit line itself and are not station centroids.
-
-    Args:
-        nwp_fp (str | PathLike): File path to the network package.
-        station_line_nodes (List[int]): List of transit line nodes representing transit stops/stations
-
-    Returns:
-        pd.DataFrame
-    """
-    nwp_fp = Path(nwp_fp)
-    if not nwp_fp.exists():
-        raise FileNotFoundError(f'File `{nwp_fp.as_posix()}` not found.')
-
-    with zipfile.ZipFile(nwp_fp) as zf:
-        results = pd.read_csv(zf.open('aux_transit_results.csv'), index_col=['i', 'j']).squeeze('columns')
-
-    station_results = pd.DataFrame(index=sorted(station_line_nodes))
-    station_results.index.name = 'stn_node'
-
-    mask_on = results.index.get_level_values(1).isin(station_line_nodes)
-    station_results['on'] = results.loc[mask_on].groupby(level=1).sum().round(3)
-
-    mask_off = results.index.get_level_values(0).isin(station_line_nodes)
-    station_results['off'] = results.loc[mask_off].groupby(level=0).sum().round(3)
-
-    return station_results
-
-
-def read_nwp_transit_segment_results(nwp_fp: Union[str, PathLike]) -> pd.DataFrame:
-    """A function to read and summarize the transit segment boardings, alightings, and volumes from a Network Package
-    file (exported from Emme using the TMG Toolbox).
-
-    Args:
-        nwp_fp (str | PathLike): File path to the network package.
-
-    Returns:
-        pd.DataFrame
-    """
-    nwp_fp = Path(nwp_fp)
-    if not nwp_fp.exists():
-        raise FileNotFoundError(f'File `{nwp_fp.as_posix()}` not found.')
-
-    _, segments = read_nwp_transit_network(nwp_fp)
-    segments.set_index(['line', 'inode', 'jnode', 'loop'], inplace=True)
-
-    with zipfile.ZipFile(nwp_fp) as zf:
-        results = pd.read_csv(zf.open('segment_results.csv'), index_col=['line', 'i', 'j', 'loop'])
+        results = pd.read_csv(
+            zf.open('segment_results.csv'), 
+            index_col=['line', 'i', 'j', 'loop'])
 
     segments['boardings'] = results['transit_boardings'].round(3)
     segments['volume'] = results['transit_volume'].round(3)
     n_missing_segments = len(segments[segments['boardings'].isnull()])
     if n_missing_segments > 0:
-        print(f'Found {n_missing_segments} segments with missing results; their results will be set to 0')
+        print(f'Found {n_missing_segments} segments with missing results; '
+              f'their results will be set to 0')
         segments.fillna(0, inplace=True)
     segments.reset_index(inplace=True)
 
@@ -595,7 +536,7 @@ def read_nwp_transit_segment_results(nwp_fp: Union[str, PathLike]) -> pd.DataFra
 
     segments.drop(['dwt', 'ttf', 'us1', 'us2', 'us3', 'prev_seg_volume'], axis=1, inplace=True)
     segments = segments[['line', 'inode', 'jnode', 'seg_seq', 'loop', 'boardings', 'alightings', 'volume']].copy()
-
+    segments = segments.set_index(['line', 'inode', 'jnode', 'loop'])
     return segments
 
 

@@ -1,4 +1,4 @@
-import gtamodel_tools.common.spatial_aggregator as sa
+import pandas as pd
 
 CRS = 'EPSG:26917'
 GRID_OFFSET = 17   # degrees
@@ -24,8 +24,6 @@ AUTO_MODE = 'c'
 
 TRAFFIC_RESULTS_COLNAMES = [AUTOVOL_COL, AUTOADDVOL_COL, AUTOTIME_COL]
 TRANSIT_RESULTS_COLNAMES  = [TRBOARDINGS_COL, TRALIGHTINGS_COL, TRONBOARD_COL]
-
-
 
 LINK_CLASSIFICATION_EXPRS = {
     'freeway': {
@@ -54,9 +52,7 @@ LINK_CLASSIFICATION_EXPRS = {
     }
 }
 
-ZONE_RANGES = sa.create_spatial_aggregator(
-        'custom_ranges', 
-        ranges=[
+ZONE_RANGES = [
             ('Toronto', 0, 1000), 
             ('Durham', 1001, 2000),
             ('York', 2001, 3000),
@@ -65,16 +61,11 @@ ZONE_RANGES = sa.create_spatial_aggregator(
             ('Hamilton', 5001, 6000),
             ('External', 6001, 7000),
             ('Undefined', 7001, 9699),
-            ('Subway_stations', 9700, 9799),
-            ('GORail_stations', 9800, 9999)
-        ],
-        ids=range(0, 10000),
-        name='zone_regions',
-    )
+            ('Subway stns with parking', 9700, 9799),
+            ('GO snts with parking', 9800, 9999)
+        ]
 
-NODE_RANGES = sa.create_spatial_aggregator(
-        'custom_ranges', 
-        ranges=[
+NODE_RANGES = [
             ('centroid', 0, 9999), 
             ('Toronto', 10000, 19999), 
             ('Durham', 20000, 29999),
@@ -86,15 +77,36 @@ NODE_RANGES = sa.create_spatial_aggregator(
             ('Haldimand-Norfolk',  80000, 80999),
             ('Brant',  81000, 81999),
             ('Waterloo',  82000, 84999),
-            ('Wellington' ,  85000, 86999),
-            ('Dufferin' ,  87000, 87999),
+            ('Wellington',  85000, 86999),
+            ('Dufferin',  87000, 87999),
             ('Simcoe',  88000, 89999),
-            ('Kawartha Lakes', 90000, 90999),
+            ('Kawartha Lakes Dision', 90000, 90999),
             ('Peterborough', 91000, 91999),
             ('External zones/gateways Canada', 94000, 94999),
             ('External zones/gateways, US', 95000, 95999),
-        ],
-        ids=range(0, 1000000),
-        name='zone_regions',
-    )
+            ('BRT/LRT nodes', 96000, 96999),
+            ('Subway nodes',  97000, 97999),
+            ('GO Rail nodes',  98000, 98999),
+            ('Hypernetwork nodes', 100000, 900000),
+            ('HOV',  900000, 999999)
+        ]
 
+TRANSIT_OPERATORS = pd.DataFrame.from_records(
+        columns=['operator', 'regex_expr'],
+        data = [
+            ('Durham', '^D'),
+            ('Burlington', '^HB'),
+            ('Oakville', '^HO'),
+            ('Milton', '^HM'),
+            ('Brampton', '^B'),
+            ('MiWay', '^M'),
+            ('Hamilton', '^W'),
+            ('YRT (not Viva)', '^Y^V'),
+            ('YRT (Viva)', '^YV'),
+            ('TTC (Subway)', '^TS'),
+            ('TTC (not Subway)', '^T^S'),
+            ('GO Bus', 'GB'),
+            ('GO Train', 'GT'),
+            ('Link Train', '^L')
+        ]
+    )
