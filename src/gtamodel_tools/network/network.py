@@ -11,12 +11,16 @@ assignment results.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 import geopandas as gpd
 from math import fabs
 import numpy as np
-from os import PathLike
+from os import environ, PathLike
 import pandas as pd
+from pathlib import Path
+from shutil import rmtree
 from typing import Dict, List, Hashable, Self, Type
+
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
@@ -88,7 +92,8 @@ class Network(object):
             self.has_traffic_results = has_traffic_results
             self.autovol = en_ntcs.AUTOVOL_COL
             self.autoaddvol = en_ntcs.AUTOADDVOL_COL
-            self.trafficvol = en_ntcs.TRAFFIC_VOL
+            self.trafficvol = 'traffic_volume'
+            self.trafficvol_expr = en_ntcs.TRAFFIC_VOL
             self.autotime = en_ntcs.AUTOTIME_COL
             self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
         self.transit_operators = en_ntcs.TRANSIT_OPERATORS
@@ -125,9 +130,270 @@ class Network(object):
             name='zone_regions'
         )
 
+        if has_traffic_results:
+            self.links[self.trafficvol] = self.links.eval(self.trafficvol_expr)
+
         self.apply_link_classification()
         self.calculate_link_direction()
 
+    def apply_link_classification(self):
+        """ 
+        Add link classification column, as defined in network coding standard
+        to links table. 
+        """
+        self.links[self.linkclass] = ''
+        for k, v in self.linkclass_exprs.items():
+            fltr = self.links[v['attr']].isin(v['values'])
+            self.links.loc[fltr, self.linkclass] = k  
+
+    def calculate_link_direction(self) -> None:
+        """ 
+        Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
+        Direction is based on North direction, which can be offset to a 
+        perceived north direction in the region. This offset is defined
+        in the network coding standard. 
+        """
+        self.links[self.link_dir_col] = self.links.apply(
+            lambda x: calc_linestring_orientation(
+                x['geometry'], self.grid_offset, 'cartesian'), axis=1)
+
+    def filter_link_connectors(self):
+        """ Returns copy of links table with connectors removed"""
+        fltr_inode_is_cntrd = self.links.index.get_level_values(
+            'inode').isin(self.zone_ranges().index)
+        fltr_jnode_is_cntrd = self.links.index.get_level_values(
+            'jnode').isin(self.zone_ranges().index)
+        return self.links.loc[
+            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
+
+#region Auto traffic summary methods
+    def summarize_link_attributes(
+            self,
+            summary: str,
+            include_connectors: bool=False,
+            *,
+            filter_expression: str | None = None,
+            congested_threshold: float | None = None,
+            node_aggregation: Type[sa.SpatialAggregator] | None = None,
+            aggregate_on_node: str='inode',
+            segment_by_linkclass: bool | None = None,
+        ):
+        """ Calculate vehicle kilometers travelled.
+
+        Arguments:
+            summary: One of 'length', 'lane_length', 'vkt', 'vht'
+                or a custom expression
+            include_connectors: If True, include connectors in summaries.
+                Default is False.
+            filter_expression: str or None
+                Optional expression to filter links. This is an expression that 
+                will be evaluatated using pandas.eval. If used, expression must
+                evaluate to either True or False. Default is None. A congestion
+                threshold filter is added on top of this expression using the
+                congested_threshold parameter.
+            congested_threshold: float or None
+                If defined, will only calculate VKT on links whose 
+                volume/capacity ratio exceeds this treshold.
+            node_aggregation: Optional spatial aggregator. If defined will  
+                segment by region. Default is None.
+            aggregate_on_node: Must be defined if node_aggregation is defined.
+                Used to define if node aggregation is defined using 
+                I-node ('inode')  or J-node ('jnode').  Default is 'inode'
+            segment_by_linkclass: bool
+                If True, additionally segment VKT by link classification.
+        """
+        # Lookup the expression
+        if summary == 'length':
+            expression = self.length
+        elif summary == 'lane_length':
+            expression = f'{self.length} * {self.lanes}'
+        elif summary == 'vkt':
+            expression = self.traffic_vkt_expr
+        elif summary == 'vht':
+            expression = self.traffic_vht_expr
+        else:
+            expression = summary
+        # Set filter expression
+        if isinstance(congested_threshold, int) or \
+                isinstance(congested_threshold, float):
+            cong_fltr_expr = f'{self.vcr_extr} > {congested_threshold}'
+            if filter_expression is not None:
+                filter_expression = \
+                    f'({filter_expression}) and ({cong_fltr_expr})'
+            else:
+                filter_expression = cong_fltr_expr
+        # See if we need traffic results and don't have them.
+        if not self.has_traffic_results:
+            if self._test_attrs_in_expression(expression, self.traffic_results):
+                raise RuntimeError(self.err_msg_no_traffic_results)
+            if self._test_attrs_in_expression(
+                    filter_expression, self.traffic_results):
+                raise RuntimeError(self.err_msg_no_traffic_results)
+
+        # Set cross-tab columns, either by link facility type
+        # and/or node aggregation.
+        if node_aggregation is not None:
+            if aggregate_on_node not in ['inode', 'jnode']:
+                raise ValueError("Invalid parameter 'aggregate_on_node'.")
+            aggr_colname = node_aggregation().name
+            crosstab_columns = [aggr_colname]
+        else:
+            crosstab_columns = []
+        if segment_by_linkclass: 
+            crosstab_columns.append(self.linkclass)
+        
+        # Filter out connectors, if desired
+        if include_connectors:
+            links = self.links.copy()
+        else:
+            links = self.filter_link_connectors()
+
+        # Apply filters, start by including everything
+        links[self.fltr_colname] = True
+        if filter_expression is not None:
+            fltr = links.eval(filter_expression).astype(bool)
+            links.loc[~fltr, self.fltr_colname] = False
+
+        # Evaluate the summary expression by link
+        links[self.expr_colname] = links.eval(expression)    
+
+        # This is the simple case, no geographic or attribute segmentation   
+        if len(crosstab_columns) == 0:
+            return links.loc[links[self.fltr_colname], self.expr_colname].sum()
+        else:
+            # Apply geographic segmentation to nodes, merging to links as needed.
+            if node_aggregation is not None:
+                nodes = self.nodes.merge(
+                    node_aggregation(), 
+                    how="inner", 
+                    left_index=True, 
+                    right_index=True
+                    )
+                links = links.merge(
+                    nodes[[aggr_colname]], 
+                    left_on=aggregate_on_node, 
+                    right_index=True
+                    )
+            final = links.loc[links[self.fltr_colname]].groupby(
+                    by=crosstab_columns)[self.expr_colname].sum()
+            if final.index.nlevels == 1:
+                return final
+            else:
+                return final.unstack(fill_value=0.0)  # unstack last level
+
+    def summarize_traffic_across_screenlines(
+            self, 
+            screenlines: gpd.GeoDataFrame) -> pd.DataFrame:
+        """ Summarize traffic volumes and capacity across screenlines:
+    
+        Args:
+            screenlines: gpd.GeoDataFrame with one row per screenline.
+                This GeoDataFrame is expected to have the following format:
+                - Index is cthe screenline name 
+                - geometry column is a LineString that defines the screenline
+                - Four columns: Equiv_NB, Equiv_Eb, Equiv_SB, Equiv_WB, which
+                  apply a direction label to links, based on their cartesian
+                  angle ('NB', 'EB', 'SB', 'WB', respectively). For example,
+                  if 'Equiv_NB' is set to 'C1', then all NB links are marked
+                  as being in the direction 'C1'.
+        Returns:
+            pd.DataFrame
+                Outputs one row per combination of screenline and direction
+                that contains the following:
+                - n_links: number of links in direction
+                - n_lanes: total number of lanes crossing screenline
+                - capacity: total link capacity crossing screenline
+                - if the network has traffic results, also outputs
+                    - 'auto_vol': assigned auto volumes
+                    - 'additional_vol': additional (background) volumes
+                    - 'traffic_vol': auto + additional volumes
+    
+        """
+        linkcap_col = 'link_cap'
+        screenlines = screenlines.to_crs(self.links.crs)
+
+        # Filter out the connectors
+        links = self.filter_link_connectors()
+
+        # Remove non-auto-links
+        fltr = links['modes'].str.contains(self.auto_mode)
+        links = links.loc[fltr]
+        # Calculate lane capacity
+        links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
+        summary_columns = ['n_links', 'n_lanes', 'capacity']
+        # Set the aggregation dictionary, which will be used in the 
+        # .groupby command
+        aggr_dict = {
+            self.lanes: ['count', 'sum'], # of links and number of lanes
+            linkcap_col: 'sum',           # vehicle capacity
+        }
+        if self.has_traffic_results:
+            aggr_dict[self.autovol] = 'sum'
+            aggr_dict[self.autoaddvol] = 'sum'
+            aggr_dict[self.trafficvol] = 'sum'
+            summary_columns.extend([
+                'auto_vol', 'additional_vol', 'traffic_vol'])
+
+        # Because links can be defined in multiple screenlines, links are
+        # matched one-by-one to each screenline.
+        screenlines_list = []
+        for scrnln_name, scrnln_def in screenlines.iterrows():
+            scrnln_gdf = gpd.GeoDataFrame(
+                index=[scrnln_name],
+                geometry=[scrnln_def.geometry],
+                crs=self.links.crs
+            )
+            links2 = links.sjoin(scrnln_gdf)
+            scrnln_summary = links2.groupby(
+                ['index_right', self.link_dir_col]).agg(aggr_dict)
+            scrnln_summary.columns = summary_columns
+            scrnln_summary.index.names = ['screenline', 'dir']
+            scrnln_summary.columns.name = 'measure'
+            # Apply direction mappings
+            scrnln_summary = scrnln_summary.reset_index()
+            mapping_dict = {
+                'NB': scrnln_def['Equiv_NB'], 
+                'EB': scrnln_def['Equiv_EB'],
+                'SB': scrnln_def['Equiv_SB'],
+                'WB': scrnln_def['Equiv_WB']
+            }
+            scrnln_summary['dir'] = scrnln_summary['dir'].map(mapping_dict)
+            scrnln_summary = scrnln_summary.groupby(['screenline', 'dir']).sum()
+            if len(scrnln_summary) > 2:
+                print(f'More than 2 directions produced '
+                      f'for screenline {scrnln_name}.')
+                print('These are the links matched to this screenline:')
+                print(links2[['link_dir']])
+            screenlines_list.append(scrnln_summary)
+        return pd.concat(screenlines_list, axis=0)
+#endregion
+
+#region Auto validation
+    def prepare_trafficvol_expr(
+            self, vol_to_compare: str, phf: float | None) -> str:
+        """ 
+        Convert vol_to_compare to an expression that can be run in pandas.eval.
+        
+        Args:
+            vol_to_compare: one of 'auto', 'total', or an expression
+                using link attributes.
+            phf: peak-hour factor used by model to convert period to
+                peak-hour demand. If not specified then a peak-hour
+                validation is performed (equivalent to phf = 1.0).
+        
+        """
+        if isinstance(phf, float) or isinstance(phf, int):
+            phf_inv = 1.0 / phf
+        else:
+            phf_inv = 1.0
+        
+        if vol_to_compare == 'total':
+            compare_expr = self.trafficvol
+        elif vol_to_compare == 'auto':
+            compare_expr = self.autovol
+        else:
+            compare_expr = vol_to_compare
+        return f'({compare_expr}) * {phf_inv}'
 
     def match_links_to_auto_count_stations(
             self, stns: gpd.GeoDataFrame) -> None:
@@ -241,224 +507,8 @@ class Network(object):
             mappings, how='left', left_index=True, right_index=True)
         self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
 
-    def apply_link_classification(self):
-        """ Add link classification column to links table. """
-        self.links[self.linkclass] = ''
-        for k, v in self.linkclass_exprs.items():
-            fltr = self.links[v['attr']].isin(v['values'])
-            self.links.loc[fltr, self.linkclass] = k  
 
-    def calculate_link_direction(self) -> None:
-        """ 
-        Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
-        """
-        self.links[self.link_dir_col] = self.links.apply(
-            lambda x: calc_linestring_orientation(
-                x['geometry'], self.grid_offset, 'cartesian'), axis=1)
 
-    def summarize_links(
-            self,
-            summary: str,
-            include_connectors: bool,
-            *,
-            filter_expression: str | None = None,
-            congested_threshold: float | None = None,
-            node_aggr: Type[sa.SpatialAggregator] | None = None,
-            segment_by_linkclass: bool | None = None,
-            **kwargs
-        ):
-        """ Calculate vehicle kilometers travelled.
-
-        Arguments:
-            include_connectors: Include VKT on connectors.
-            summary: One of 'length', 'lane_length', 'vkt', 'vht'
-                or a custom expression
-            filter_expression: str or None
-                Optional expression to filter links. This is an expression that 
-                will be evaluatated using pandas.eval. If used, expression must
-                evaluate to either True or False. Default is None. A congestion
-                threshold filter is added on top of this expression using the
-                congested_threshold parameter.
-            congested_threshold: float or None
-                If defined, will only calculate VKT on links whose volume/capacity
-                ratio exceeds this treshold.
-            node_aggr: Optional spatial aggregator. If defined will segment the VKT 
-                by region. Default is None.
-            segment_by_linkclass: bool
-                If true, additionally segment VKT by link classification.
-            kwargs: Additional arguments to be passed to _summarize_links
-        """
-        # Lookup the expression
-        if summary == 'length':
-            expression = self.length
-        elif summary == 'lane_length':
-            expression = f'{self.length} * {self.lanes}'
-        elif summary == 'vkt':
-            expression = self.traffic_vkt_expr
-        elif summary == 'vht':
-            expression = self.traffic_vht_expr
-        else:
-            expression = summary
-        if congested_threshold is not None:
-            cong_fltr_expr = \
-                f'{self.congested_filter_extr} > {congested_threshold}'
-            if filter_expression is not None:
-                filter_expression = f'{filter_expression} and {cong_fltr_expr}'
-            else:
-                filter_expression = cong_fltr_expr
-        if segment_by_linkclass:  # add to cross_tabs kwargs argument
-            if 'crosstab_columns' in kwargs:
-                # Move crosstab columns out of kwargs to deal with 'officially'
-                kw_crosstab = kwargs['crosstab_columns']
-                if isinstance(kw_crosstab, Hashable):
-                    kwargs['crosstab_columns'] = [kwargs['crosstab_columns']]
-                kwargs['crosstab_columns'] = \
-                    kwargs['crosstab_columns'] + [self.linkclass]
-            else:
-                kwargs['crosstab_columns'] = self.linkclass
-
-        return self._summarize_links(
-            expression=expression, 
-            include_connectors=include_connectors, 
-            filter_expression=filter_expression,
-            node_aggr=node_aggr, 
-            **kwargs
-        )
-
-    def _summarize_links(
-            self, 
-            expression: str,
-            include_connectors: bool,
-            *,
-            filter_expression: str | None = None,
-            node_aggr: Type[sa.SpatialAggregator] | None = None,
-            ij_aggr: str | None = 'ijnodes',
-            crosstab_columns: str | List[str] | None = None
-        ) -> float | pd.DataFrame:
-        """ Summarizes an expression over a link table.
-
-        Can optionally choose to:
-        - include connectors
-        - apply arbitrary filters.
-        - apply geographical aggregations
-        - include crosstab columns, in which case the expression is summarized 
-            for each segment. 
-
-        Arguments:
-            expression: str
-                Value to be aggregated. This is an expression that 
-                will be evaluatated using pandas.eval.
-            include_connectors: bool
-                If True, includes connectors in summary calculations.
-            filter_expression: str or None
-                Optional expression to filter links. This is an expression that 
-                will be evaluatated using pandas.eval. If used, expression must
-                evaluate to either True or False. Default is None.
-            node_aggr: sa.SpatialAggregator or None
-                Optional node spatial aggregator. If defined, then the VKT will 
-                be returned for each geographic segmentation.
-                Default is None.
-            ij_aggr: str or None
-                Must be defined if node_aggr is defined. 
-                If 'inode', link spatial aggregation is by the I-node.
-                If 'jnode', link spatial aggregation is by the J-node,
-                If 'ijnodes', link spatial aggregation is by both I-node and 
-                    J-node. Links straddling aggregation regions will be 
-                    included in a separate 'N/A' category.
-                    Default is None.
-            crosstab_columns: str or List[str] or None = None
-                Optional input to specify segmentation by link attribute.
-                Attribute must exist in the links table.
-
-        Returns:
-            float or pd.DataFrame
-                If both node_aggr and crosstab_columns are None, then returns
-                a float with summary calculation over entire level.
-                Otherwise returns a pandas.DataFrame showing segmented summary.
-        
-        """
-        if node_aggr is not None:
-            if ij_aggr not in ['inode', 'jnode', 'ijnodes']:
-                raise ValueError("Invalid parameter 'ij_aggr'.")
-        # see if we need traffic results and don't have them.
-        if not self.has_traffic_results:
-            if self._test_attrs_in_expression(
-                    expression, self.traffic_results):
-                raise RuntimeError(self.err_msg_no_traffic_results)
-            if self._test_attrs_in_expression(
-                    filter_expression, self.traffic_results):
-                raise RuntimeError(self.err_msg_no_traffic_results)
-
-        links = self.links.copy()
-        # Apply filters, start by including everything
-        links[self.fltr_colname] = True
-        if filter_expression is not None:
-            fltr = links.eval(filter_expression).astype(bool)
-            links.loc[~fltr, self.fltr_colname] = False
-        if include_connectors is False:
-            links = self._filter_connectors_from_linktable(
-                links, self.fltr_colname)
-
-        links[self.expr_colname] = links.eval(expression)       
-        # This is the simple case, no geographic or attribute segmentation     
-        if node_aggr is None and crosstab_columns is None:
-            return links.loc[
-                links[self.fltr_colname], self.expr_colname].sum()
-        # Apply geographic segmentation to nodes, merging to links as needed.
-        if node_aggr is not None:
-            aggr_colname = node_aggr().name
-            nodes = self.nodes.merge(
-                node_aggr(), how="inner", left_index=True, right_index=True)
-            if ij_aggr in ['inode', 'ijnodes']:
-                links = links.merge(
-                    nodes[[aggr_colname]], left_on='inode', right_index=True)
-            if ij_aggr in ['jnode', 'ijnodes']:
-                links = links.merge(
-                    nodes[[aggr_colname]], left_on='jnode', right_index=True,
-                    suffixes=['_i', '_j'])
-            if ij_aggr == 'ijnodes':
-                # check for different node aggregations and set to 'N/A'
-                # note that suffixes are applied in this case.
-                links[aggr_colname] = 'N/A'
-                fltr = links[aggr_colname + '_i'] == links[aggr_colname + '_j']
-                links.loc[fltr, aggr_colname] = links.loc[
-                    fltr, aggr_colname + '_i']
-            # Now the geographical segmentation is prepared, treat
-            # it the same as all others. 
-            if crosstab_columns is None:
-                crosstab_columns = [aggr_colname]
-            elif isinstance(crosstab_columns, list):
-                crosstab_columns = [aggr_colname] + crosstab_columns
-            else:
-                crosstab_columns=[aggr_colname, crosstab_columns]
-        return links.loc[
-            links[self.fltr_colname]].groupby(
-                crosstab_columns)[self.expr_colname].sum()       
-
-    def prepare_trafficvol_expr(self, vol_to_compare: str, phf: float) -> str:
-        """ 
-        Convert vol_to_compare to an expression that can be run in pandas.eval.
-        
-        Args:
-            vol_to_compare: one of 'auto', 'total', or an expression
-                using link attributes.
-            phf: peak-hour factor used by model to convert period to
-                peak-hour demand. If not specified then a peak-hour
-                validation is performed (equivalent to phf = 1.0).
-        
-        """
-        if isinstance(phf, float) or isinstance(phf, int):
-            phf_inv = 1.0 / phf
-        else:
-            phf_inv = 1.0
-        
-        if vol_to_compare == 'total':
-            compare_expr = self.trafficvol
-        elif vol_to_compare == 'auto':
-            compare_expr = self.autovol
-        else:
-            compare_expr = vol_to_compare
-        return f'({compare_expr}) * {phf_inv}'
 
 
     def prepare_link_validation_table(
@@ -507,7 +557,7 @@ class Network(object):
         return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
                     modelvol_attr, vdtnvol_attr]]
 
-    def summarize_traffic_across_screenlines(
+    def validate_traffic_across_screenlines(
             self,
             screenlines: gpd.GeoSeries,
             comparisons: Dict,
@@ -636,41 +686,41 @@ class Network(object):
                 return True
         return False
 
-    def _filter_connectors_from_linktable(
-            self, 
-            links: pd.DataFrame,
-            filter_column
-        ) -> pd.DataFrame:
-        """ Filter connectors from provided link table. 
+    # def _filter_connectors_from_linktable(
+    #         self, 
+    #         links: pd.DataFrame,
+    #         filter_column
+    #     ) -> pd.DataFrame:
+    #     """ Filter connectors from provided link table. 
         
-        Uses provided link table to allow more flexibility in 
-        using this as part of larger calculations. 
-        """
-        has_ijnode_index=False
-        if 'inode' in links.index.names:
-            has_ijnode_index = True
-            links = links.reset_index()
-        links = links.merge(
-            self.nodes[['is_centroid']],
-            how="left",
-            left_on='inode',
-            right_index=True
-        )
-        links = links.merge(
-            self.nodes[['is_centroid']],
-            how="left",
-            left_on='jnode',
-            right_index=True,
-            suffixes=['_i', '_j']
-        )
-        connector_fltr = (
-            links['is_centroid_i'] != 0) | (links['is_centroid_j'] != 0)
-        links.loc[connector_fltr, filter_column] = False
+    #     Uses provided link table to allow more flexibility in 
+    #     using this as part of larger calculations. 
+    #     """
+    #     has_ijnode_index=False
+    #     if 'inode' in links.index.names:
+    #         has_ijnode_index = True
+    #         links = links.reset_index()
+    #     links = links.merge(
+    #         self.nodes[['is_centroid']],
+    #         how="left",
+    #         left_on='inode',
+    #         right_index=True
+    #     )
+    #     links = links.merge(
+    #         self.nodes[['is_centroid']],
+    #         how="left",
+    #         left_on='jnode',
+    #         right_index=True,
+    #         suffixes=['_i', '_j']
+    #     )
+    #     connector_fltr = (
+    #         links['is_centroid_i'] != 0) | (links['is_centroid_j'] != 0)
+    #     links.loc[connector_fltr, filter_column] = False
             
-        # Reset index, if that's how the link table came in.
-        if has_ijnode_index:
-            links = links.set_index(['inode', 'jnode'])
-        return links.drop(['is_centroid_i', 'is_centroid_j'], axis=1)
+    #     # Reset index, if that's how the link table came in.
+    #     if has_ijnode_index:
+    #         links = links.set_index(['inode', 'jnode'])
+    #     return links.drop(['is_centroid_i', 'is_centroid_j'], axis=1)
 
 
 #region Transit
@@ -821,7 +871,7 @@ class Network(object):
 
 #endregion
 
-#region Collapse Hypernetwork
+#region Collapse transit hypernetwork
     def collapse_hypernetwork(
             self, aggregation_rules: dict | None=None) -> Self:
         """ Returns a new EmmeNetwork with equivalent single-layer network. 
@@ -1027,6 +1077,50 @@ class Network(object):
     
 #endregion
 
+
+#region Export to NWP
+    # def to_nwp(self, fp: PathLike, header_comment_lines: List | None = None
+    #     ) -> None:
+    #     """ Export package to Emme-based NWP format. 
+        
+    #     Args:
+    #         fp: PathLike
+    #             Filepath of exported .NWP file
+    #         header_comment_lines:
+    #             A list of comments to be added as headers to all 
+    #             Emme transactation files. Max 78 characters per entry.
+            
+    #     """
+        
+    #     # Find the Windows temp directory, clear if it already exists
+    #     temp_dir = Path(environ['TMP']) / 'GTAModel_Tools'
+    #     if temp_dir.exists():
+    #         rmtree(temp_dir)
+    #     temp_dir.mkdir()
+        
+    #     self._write_base_network(temp_dir / 'base.211', header_comment_lines)
+    #     pass
+
+    # def _prepare_node_base_output(node: pd.Series):
+    #     pass
+
+    # def _write_base_network(
+    #     self, fp: PathLike, header_comment_lines: List | None = None) -> None:
+    #     with open(fp, 'w') as f:
+    #         f.write('c Emme Modeller - Base Network Transaction')
+    #         f.write('')
+    #         if hcl is not None:
+    #             for hcl in header_comment_lines:
+    #                 f.write(f'c {hcl}')
+    #             f.write('')
+    #         f.write('t nodes')
+    #         f.write('c   Node          X-coord          Y-coord   Data1   Data2   Data3 Label')
+    #         for 
+#endregion
+
+
+
+
 #region properties
 
     @property
@@ -1038,7 +1132,7 @@ class Network(object):
         return f'{self.autotime} * {self.trafficvol} / 60.0'
 
     @property
-    def congested_filter_extr(self) -> str:
+    def vcr_extr(self) -> str:
         return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
 
     @property
