@@ -33,9 +33,9 @@ def apply_dataframe_filter(
     has_filter = True if filter_expr else False
     if has_filter:
         filter_values = df.eval(filter_expr, engine="numexpr").astype(bool)
-        return df.loc[filter_values]
+        return df.loc[filter_values].copy()
     else:
-        return df
+        return df.copy()
     
 
 def round_to_totals(df: pd.DataFrame, rounding_def: dict) -> pd.DataFrame:

@@ -220,8 +220,18 @@ class MicroSim():
             values=final_weight_col, 
             geom_id=[self._trip_cols['ozone'], self._trip_cols['dzone']],
             spatial_aggregations=[origin_sa, destination_sa], 
+            crosstabs='mode'
         ).squeeze() / self._n_tripmode_samples
-        s.index.names = [origin_sa.name, destination_sa.name]
+        
+        if origin_sa is not None:
+            origin_name = origin_sa.name + '_o'
+        else:
+            origin_name = 'zone_o'
+        if destination_sa is not None:
+            destination_name = destination_sa.name + '_d' 
+        else:
+            destination_name = 'zone_d'
+        s.index.names = [origin_name, destination_name, 'mode']
         return s
 
     def _apply_timeperiod_filter(
