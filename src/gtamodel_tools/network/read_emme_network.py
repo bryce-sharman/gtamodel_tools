@@ -90,9 +90,10 @@ def read_emme_network_from_nwp(
         raise FileExistsError(f'File does not exsit: {nwp_fp}')
 
     # Read nodes and links, extra attributes and results (if available)
+    print('    Reading in base network -- nodes and links')
     nodes, links = read_nwp_base_network(nwp_fp, crs)
     # Merge in node and link results, if desired
-    print('Merging node and link attributes.')
+    print('    Merging node and link attributes.')
     nodes = _merge_attributes(
         nodes, nwp_fp, read_nwp_node_attributes, node_attributes)
     links = _merge_attributes(
@@ -100,19 +101,18 @@ def read_emme_network_from_nwp(
     links = links.rename(LINKCOLS_RENAME, axis=1)
 
     try:
-        print('Network has traffic results, reading these in.')
         results = read_nwp_traffic_results(nwp_fp)
         links = links.merge(
             results, how='left', left_index=True, right_index=True)
         has_traffic_results = True
     except KeyError:
-        print('Network does not have traffic results')
         has_traffic_results = False
 
     # Read in transit network, extra attributes and results (if available)
+    print('Reading in transit network.')
     tvehicles = read_nwp_transit_vehicles(nwp_fp)
     tlines, tsegments = read_nwp_transit_network(nwp_fp)
-    print('Merging in transit line attributes.')
+    print('    Merging in transit attributes.')
     try:
 
         tlines = _merge_attributes(
@@ -120,7 +120,7 @@ def read_emme_network_from_nwp(
             tline_attributes
         )
     except KeyError:
-        print('Could not merge in transit line attributes.')
+        print('     Could not merge in transit line attributes.')
     tlines = tlines.rename(TLINECOLS_RENAME, axis=1)
 
     tsegments = tsegments.rename(TSEGCOLS_RENAME, axis=1)
@@ -136,6 +136,7 @@ def read_emme_network_from_nwp(
         has_transit_results = True
     except KeyError:
         has_transit_results = False
+    print('    Completed reading Emme Network.')
     return Network(
         nodes, links, tvehicles, tlines, tsegments, coding_standard, 
         has_traffic_results, has_transit_results
@@ -194,7 +195,6 @@ def read_nwp_base_network(
         raise FileNotFoundError(f'File `{nwp_fp.as_posix()}` not found.')
 
     # Identify node and link regions in the file.
-    print("Reading in base network -- nodes and links")
     header_nodes, header_links, last_line = None, None, None
     with zipfile.ZipFile(nwp_fp) as zf:
         for i, line in enumerate(zf.open('base.211'), start=1):
@@ -238,7 +238,8 @@ def read_nwp_base_network(
         mask_mod = links['c'] == 'm'
         n_modified_links = len(links[mask_mod])
         if n_modified_links > 0:
-            print(f'Ignored {n_modified_links} modification records in the links table')
+            print(f'    Ignored {n_modified_links} modification records '
+                  f'in the links table')
         links = links[~mask_mod].drop('c', axis=1)
         if 'typ' in links.columns:
             links.rename(columns={'typ': 'type'}, inplace=True)
@@ -447,7 +448,6 @@ def read_nwp_transit_network(nwp_fp: Union[str, PathLike]) -> Tuple[pd.DataFrame
     transit_lines = []
     transit_segs = []
     current_tline = None
-    print('Reading in transit network lines and segments.')
     with zipfile.ZipFile(nwp_fp) as zf:
         for line in zf.open('transit.221'):
             line = line.strip().decode('utf-8')
@@ -553,7 +553,6 @@ def read_nwp_transit_vehicles(nwp_fp: Union[str, PathLike]) -> pd.DataFrame:
     nwp_fp = Path(nwp_fp)
     if not nwp_fp.exists():
         raise FileNotFoundError(f'File `{nwp_fp.as_posix()}` not found.')
-    print('Reading in transit vehicles.')
     with zipfile.ZipFile(nwp_fp) as zf:
         # Get header
         header = None

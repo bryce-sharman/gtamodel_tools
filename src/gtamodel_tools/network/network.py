@@ -88,26 +88,34 @@ class Network(object):
         self.linkclass = 'link_class'
         self.linkclass_exprs = en_ntcs.LINK_CLASSIFICATION_EXPRS
 
-        if has_traffic_results:
-            self.has_traffic_results = has_traffic_results
-            self.autovol = en_ntcs.AUTOVOL_COL
-            self.autoaddvol = en_ntcs.AUTOADDVOL_COL
-            self.trafficvol = 'traffic_volume'
-            self.trafficvol_expr = en_ntcs.TRAFFIC_VOL
-            self.autotime = en_ntcs.AUTOTIME_COL
-            self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
-        self.transit_operators = en_ntcs.TRANSIT_OPERATORS
-        self.transit_operators = self.transit_operators.set_index('operator')
-        if has_transit_results:
-            self.has_transit_results = has_transit_results
-            self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
-
         self.nodes = nodes
         self.links = links
         self.tvehicles = tvehicles
         self.tlines = tlines
         self.tsegments = tsegments
+        self.transit_operator_regexpr = en_ntcs.TRANSIT_OPERATOR_REGEXPR
 
+        self.apply_link_classification()
+        self.calculate_link_direction()
+        self.apply_transit_operator()
+        self.toperator = "operator"
+
+        self.has_traffic_results = has_traffic_results
+        self.autovol = en_ntcs.AUTOVOL_COL
+        self.autoaddvol = en_ntcs.AUTOADDVOL_COL
+        self.trafficvol = 'traffic_volume'
+        self.trafficvol_expr = en_ntcs.TRAFFIC_VOL
+        self.autotime = en_ntcs.AUTOTIME_COL
+        self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
+        self.has_transit_results = has_transit_results
+        self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
+        self.transit_boardings = en_ntcs.TRBOARDINGS_COL
+        self.transit_alightings = en_ntcs.TRALIGHTINGS_COL
+        self.transit_volume = en_ntcs.TRVOLUME
+        
+        if self.has_traffic_results:
+            self.links[self.trafficvol] = self.links.eval(self.trafficvol_expr)
+            
         self.err_msg_not_hypernetwork = \
             "This method cannot be run on a hypernetwork."
         self.err_msg_no_traffic_results = \
@@ -128,13 +136,7 @@ class Network(object):
             ranges=en_ntcs.NODE_RANGES,
             ids=self.nodes.index,
             name='zone_regions'
-        )
-
-        if has_traffic_results:
-            self.links[self.trafficvol] = self.links.eval(self.trafficvol_expr)
-
-        self.apply_link_classification()
-        self.calculate_link_direction()
+        )          
 
     def apply_link_classification(self):
         """ 
@@ -165,6 +167,21 @@ class Network(object):
             'jnode').isin(self.zone_ranges().index)
         return self.links.loc[
             (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
+
+    def apply_transit_operator(self):
+        """ 
+        Apply the operator regex, defined in the enumeration,to append
+        the transit operator to the transit lines and transit segments tables.
+        """
+        tlines_index = self.tlines.index
+        tsegments_index = self.tsegments.index.get_level_values(0)
+        self.tlines['operator'] = ''
+        self.tsegments['operator'] = ''
+        for operator, regex_expr in self.transit_operator_regexpr.items():
+            fltr = tlines_index.str.match(regex_expr)
+            self.tlines.loc[fltr, 'operator'] = operator
+            fltr = tsegments_index.str.match(regex_expr)
+            self.tsegments.loc[fltr, 'operator'] = operator
 
 #region Auto traffic summary methods
     def summarize_link_attributes(
@@ -507,10 +524,6 @@ class Network(object):
             mappings, how='left', left_index=True, right_index=True)
         self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
 
-
-
-
-
     def prepare_link_validation_table(
             self, 
             counts: pd.Series, 
@@ -685,59 +698,108 @@ class Network(object):
             if attr in expr:
                 return True
         return False
-
-    # def _filter_connectors_from_linktable(
-    #         self, 
-    #         links: pd.DataFrame,
-    #         filter_column
-    #     ) -> pd.DataFrame:
-    #     """ Filter connectors from provided link table. 
-        
-    #     Uses provided link table to allow more flexibility in 
-    #     using this as part of larger calculations. 
-    #     """
-    #     has_ijnode_index=False
-    #     if 'inode' in links.index.names:
-    #         has_ijnode_index = True
-    #         links = links.reset_index()
-    #     links = links.merge(
-    #         self.nodes[['is_centroid']],
-    #         how="left",
-    #         left_on='inode',
-    #         right_index=True
-    #     )
-    #     links = links.merge(
-    #         self.nodes[['is_centroid']],
-    #         how="left",
-    #         left_on='jnode',
-    #         right_index=True,
-    #         suffixes=['_i', '_j']
-    #     )
-    #     connector_fltr = (
-    #         links['is_centroid_i'] != 0) | (links['is_centroid_j'] != 0)
-    #     links.loc[connector_fltr, filter_column] = False
-            
-    #     # Reset index, if that's how the link table came in.
-    #     if has_ijnode_index:
-    #         links = links.set_index(['inode', 'jnode'])
-    #     return links.drop(['is_centroid_i', 'is_centroid_j'], axis=1)
-
-
+#endregion
 #region Transit
 
 
-    def create_corridor_profiles(
-            self, transit_lines: str | List[str]) -> pd.DataFrame:
-        """
-        Creates a transit profile along all links of the selected lines
-        that form a transit corridor, summing boardings, alightings and 
-        volumes on input lines.
-
-        Args:
-            - transit_lines: str | List[str]
+    def calc_line_profile(
+            self, tline_ids: str|List[str], 
+            stn_labels: pd.Series | Dict | None=None
+        ) -> pd.DataFrame:
+        """ 
+        Calculate boardings, alightings and on-board riders along transit lines. 
+        If multiple lines are defined, one line must be a shorter version of the 
+        other line (This function cannot currently handle branching).
         
-        """
+        Args:
+            tline_id: str or List[str]
+                Transit line id(s)
+            stn_labels: pd.Series | Dict } None
+                Optional mapping between node ID and station label.
+                If None, then node IDs are returned, else maps in stop
+                labels to node id. Default is None.
 
+        Returns:
+            pd.DataFrame
+                - Index is the station label
+                - Contains the following columns:
+                    - boardings: Number of boardings at the station
+                    - alightings: Number of alightings at the station
+                    - volume: Passenger volume leaving the station
+        """
+        def _sum_results_for_multiple_lineprofiles(
+                current, new, merge_type, suffixes):
+            df = current.merge(
+                new, how=merge_type, left_index=True, 
+                right_index=True, suffixes=suffixes
+            ).fillna(0)
+            for col in self.transit_results:
+                df[col] = df[col + suffixes[0]] + df[col + suffixes[1]]
+                df = df.drop([col + suffixes[0], col + suffixes[1]], axis=1)
+            return df
+            
+        suffixes=['_x', '_y']
+        if isinstance(tline_ids, list) and len(tline_ids) == 1:
+            tline_ids = tline_ids[0]
+            
+        # Case 1: single line
+        if isinstance(tline_ids, str):
+            tsegs = self._calc_line_profile_1line(tline_ids)
+            return tsegs
+        # Case 2: multiple lines
+        tsegs_list = []
+        for tline_id in tline_ids:
+            tsegs_list.append(self._calc_line_profile_1line(tline_id))
+
+        current = tsegs_list[0]
+        for i in range(1, len(tline_ids)):
+            new = tsegs_list[i]
+            if current.index.equals(new.index):
+                # Two lines have the exact same index
+                current = _sum_results_for_multiple_lineprofiles(
+                    current, new, 'inner', suffixes)
+            else:
+                current_minus_new = current.index.difference(new.index)
+                new_minus_current = new.index.difference(current.index)
+                if len(current_minus_new) > 0 and len(new_minus_current) == 0:
+                    # new_tsegs is entirely within current_tsegs
+                    current = _sum_results_for_multiple_lineprofiles(
+                        current, new, 'left', suffixes)
+                elif len(current_minus_new) == 0 and len(new_minus_current) > 0:
+                    # Current is 
+                    current = _sum_results_for_multiple_lineprofiles(
+                        new, current, 'left', suffixes)
+                else:
+                    print('No transit line is a subset of the other, '
+                        'Cannot create joint line profile. Returning None')
+                    return None
+        final = current
+        if isinstance(stn_labels, pd.Series) or isinstance(stn_labels, dict):
+            final = final.reset_index()
+            final['stn'] = final['inode'].map(stn_labels)
+            fltr = pd.isna(final['stn'])
+            final.loc[fltr, 'stn'] = final.loc[fltr, 'inode']
+            final = final.set_index(['stn', 'loop'])
+            final = final.drop('inode', axis=1)
+        return final
+
+    def _calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
+        """ 
+        Helper function to get the boardings, alightings and volume along 
+        the line. 
+        """
+        if tline_id not in self.tlines.index:
+            print(f'Transit line {tline_id} does not exist, returning None.')
+            return None
+        tsegs = self.tsegments.loc[
+            idx[tline_id, :, :, :, :], self.transit_results]
+        # add the hidden segment
+        # all passengers onboard at the end on train must alight
+        last_tseg = tsegs.iloc[-1]
+        tsegs.loc[tline_id, last_tseg.name[2], 0, last_tseg.name[3]] = [
+            0, last_tseg['volume'], 0]
+        tsegs = tsegs.reset_index(['line', 'jnode'], drop=True)
+        return tsegs
 
     def summarize_transit_segments(
             self, 
@@ -844,7 +906,7 @@ class Network(object):
             else:
                 aggregation_columns = crosstab_columns
             return tsegs.groupby(
-                aggregation_columns)[self.EXPR_COLNAME].sum()      
+                aggregation_columns)[self.expr_colname].sum()      
 
 
     def _test_if_hypernetwork(self) -> bool:
@@ -1134,6 +1196,10 @@ class Network(object):
     @property
     def vcr_extr(self) -> str:
         return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
+
+    @property
+    def transit_vkt_expr(self) -> str:
+        return f'{self.length} * {self.transit_volume}'
 
     @property
     def is_hypernetwork(self) -> bool:

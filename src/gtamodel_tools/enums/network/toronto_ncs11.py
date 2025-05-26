@@ -17,13 +17,13 @@ AUTOTIME_COL = 'auto_time'
 
 TRBOARDINGS_COL = 'boardings'
 TRALIGHTINGS_COL = 'alightings'
-TRONBOARD_COL = 'volume'
+TRVOLUME = 'volume'
 
 MIN_REGNODE_ID = 10000
 AUTO_MODE = 'c'
 
 TRAFFIC_RESULTS_COLNAMES = [AUTOVOL_COL, AUTOADDVOL_COL, AUTOTIME_COL]
-TRANSIT_RESULTS_COLNAMES  = [TRBOARDINGS_COL, TRALIGHTINGS_COL, TRONBOARD_COL]
+TRANSIT_RESULTS_COLNAMES  = [TRBOARDINGS_COL, TRALIGHTINGS_COL, TRVOLUME]
 
 LINK_CLASSIFICATION_EXPRS = {
     'freeway': {
@@ -91,22 +91,23 @@ NODE_RANGES = [
             ('HOV',  900000, 999999)
         ]
 
-TRANSIT_OPERATORS = pd.DataFrame.from_records(
-        columns=['operator', 'regex_expr'],
-        data = [
-            ('Durham', '^D'),
-            ('Burlington', '^HB'),
-            ('Oakville', '^HO'),
-            ('Milton', '^HM'),
-            ('Brampton', '^B'),
-            ('MiWay', '^M'),
-            ('Hamilton', '^W'),
-            ('YRT (not Viva)', '^Y^V'),
-            ('YRT (Viva)', '^YV'),
-            ('TTC (Subway)', '^TS'),
-            ('TTC (not Subway)', '^T^S'),
-            ('GO Bus', 'GB'),
-            ('GO Train', 'GT'),
-            ('Link Train', '^L')
-        ]
-    )
+TRANSIT_OPERATOR_REGEXPR = pd.Series(
+    data={
+        'Durham': '^D',
+        'Burlington': '^HB',
+        'Oakville': '^HO',
+        'Milton': '^HM',
+        'Brampton': '^B',
+        'MiWay': '^M',
+        'Hamilton': '^W',
+        'YRT (not Viva)': '^Y[0-9]',
+        'YRT (Viva)':'^YV',
+        'TTC (Subway)':'^T00[1-7]',
+        'TTC (Streetcar)': '^T5',
+        'TTC (bus)': '(^T[12346789])|(^T0[1-9])|(^T00[89])', #
+        'GO Bus': 'GB',
+        'GO Train': 'GT',
+        'Link Train': '^L'
+    },
+    name='transit_operator_regex'
+)
