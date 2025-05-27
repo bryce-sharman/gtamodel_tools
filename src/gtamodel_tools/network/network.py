@@ -744,15 +744,22 @@ class Network(object):
             
         # Case 1: single line
         if isinstance(tline_ids, str):
-            tsegs = self._calc_line_profile_1line(tline_ids)
+            tsegs = self.calc_line_profile_1line(tline_ids)
             return tsegs
         # Case 2: multiple lines
         tsegs_list = []
         for tline_id in tline_ids:
-            tsegs_list.append(self._calc_line_profile_1line(tline_id))
+            line_profile = self.calc_line_profile_1line(tline_id)
+            if line_profile is not None:
+                tsegs_list.append(line_profile)
+        # This is the case where multiple lines are in the list but
+        # only one actually exists.
+        if len(tsegs_list) == 1:
+            return tsegs_list[0]
 
+        # At this point we know there are at least two transit lines.
         current = tsegs_list[0]
-        for i in range(1, len(tline_ids)):
+        for i in range(1, len(tsegs_list)):
             new = tsegs_list[i]
             if current.index.equals(new.index):
                 # Two lines have the exact same index
@@ -783,7 +790,7 @@ class Network(object):
             final = final.drop('inode', axis=1)
         return final
 
-    def _calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
+    def calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
         """ 
         Helper function to get the boardings, alightings and volume along 
         the line. 
