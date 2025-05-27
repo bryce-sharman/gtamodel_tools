@@ -113,7 +113,8 @@ TRANSIT_OPERATOR_REGEXPR = pd.Series(
         'Hamilton': '^W',
         'YRT (not Viva)': '^Y[0-9]',
         'YRT (Viva)':'^YV',
-        'TTC (Subway)':'^T00[1-7]',
+        'TTC (Subway)':'^T00[1-4]',
+        'TTC (LRT)':'^T00[5-7]',
         'TTC (Streetcar)': '^T5',
         'TTC (bus)': '(^T[12346789])|(^T0[1-9])|(^T00[89])', #
         'GO Bus': 'GB',
