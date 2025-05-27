@@ -1,0 +1,16 @@
+name: gtamodel_tools
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - geopandas
+  - jupyterlab
+  - matplotlib
+  - numexpr
+  - numpy
+  - openpyxl
+  - pandas
+  - pyogrio=0.7.*
+  - pytest
+  - shapely
