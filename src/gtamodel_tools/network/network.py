@@ -11,20 +11,23 @@ assignment results.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
 import geopandas as gpd
 from math import fabs
 import numpy as np
-from os import environ, PathLike
+from os import PathLike
 import pandas as pd
 from pathlib import Path
-from shutil import rmtree
 from typing import Dict, List, Hashable, Self, Type
-
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
-import gtamodel_tools.enums.validation.traffic.traffic as en_traffic
+from gtamodel_tools.config import Config
+from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
+    merge_attributes, read_nwp_node_attributes, read_nwp_link_attributes, \
+    read_nwp_traffic_results, read_nwp_transit_vehicles, \
+    read_nwp_transit_network, read_nwp_transit_line_attributes, \
+    read_nwp_transit_segment_results
+
 
 idx = pd.IndexSlice
 
@@ -34,119 +37,197 @@ class Network(object):
     summary methods.
 
     Parameters:
-        nodes: gpd.GeoDataFrame
-            Node definitions including attributes and Point geometry
-        links: gpd.GeomDataFrame
-            Link definitions including attributes and LineString geometry
-        tvehicles: pd.DataFrame
-            Transit vehicle definitions
-        tlines: pd.DataFrame
-            Transit line definitions
-        tsegments: pd.DataFrame,
-            Transit segment definitions
-        coding_standard: str
-            Currently must be one of ['ncs11', 'ncs16', 'ncs22'], but it is
-            anticipated to add more in the future.
-        has_traffic_results: bool
-            True if network includes traffic results
-        has_transit_results: bool
-            True if network includes transit results
+        fp: PathLike
+            Path to configuration file
 
     """
 
-    def __init__(
-            self, 
-            nodes: gpd.GeoDataFrame,
-            links: gpd.GeomDataFrame,
-            tvehicles: pd.DataFrame,
-            tlines: pd.DataFrame,
-            tsegments: pd.DataFrame,
-            coding_standard: str,
-            has_traffic_results: bool,
-            has_transit_results: bool
-        ) -> None:
-        # Define columns as per coding standard
-        if coding_standard == 'ncs11':
-            import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
-        elif coding_standard == 'ncs16':
-            import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
-        elif coding_standard == 'ncs22':
-            import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
-        self.coding_standard = coding_standard
-        self.crs = en_ntcs.CRS
-        self.grid_offset = en_ntcs.GRID_OFFSET
-        self.link_dir_col = 'link_dir'
+    def __init__(self, config: Config) -> None:
 
-        self.min_regnode_id = en_ntcs.MIN_REGNODE_ID
-        self.auto_mode = en_ntcs.AUTO_MODE
-        self.length = en_ntcs.LENGTH_COL
-        self.modes = en_ntcs.MODES_COL
-        self.type = en_ntcs.TYPE_COL
-        self.lanes = en_ntcs.LANES_COL
-        self.ffspd = en_ntcs.FFSPD_COL
-        self.lanecap = en_ntcs.LANECAP_COL
-        self.linkclass = 'link_class'
-        self.linkclass_exprs = en_ntcs.LINK_CLASSIFICATION_EXPRS
+        # The following attributes are defined directly in the config file
+        self.network_crs = config.network_crs
+        self.grid_offset = config.grid_offset
+        self.automode_id = config.automode_id
+        self.link_freeflow_speed_col = config.link_freeflow_speed_col
+        self.link_lane_capacity_col = config.link_lane_capacity_col
+        self.time_periods = config.time_periods
+        self.link_classification_defs = config.link_classification_defs
+        self.zone_range_defs = config.zone_ranges
+        self.node_range_defs = config.node_ranges
+        self.transit_opererator_regexprs = config.transit_opererator_regexprs
 
-        self.nodes = nodes
-        self.links = links
-        self.tvehicles = tvehicles
-        self.tlines = tlines
-        self.tsegments = tsegments
-        self.transit_operator_regexpr = en_ntcs.TRANSIT_OPERATOR_REGEXPR
+        # Column to store cartesian directions, used to match validation counts
+        self.link_dir_col = 'link_dir' 
 
-        self.apply_link_classification()
-        self.calculate_link_direction()
-        self.apply_transit_operator()
+        # Transit operator column
         self.toperator = "operator"
 
-        self.has_traffic_results = has_traffic_results
-        self.autovol = en_ntcs.AUTOVOL_COL
-        self.autoaddvol = en_ntcs.AUTOADDVOL_COL
-        self.trafficvol = 'traffic_volume'
-        self.trafficvol_expr = en_ntcs.TRAFFIC_VOL
-        self.autotime = en_ntcs.AUTOTIME_COL
-        self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
-        self.has_transit_results = has_transit_results
-        self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
-        self.transit_boardings = en_ntcs.TRBOARDINGS_COL
-        self.transit_alightings = en_ntcs.TRALIGHTINGS_COL
-        self.transit_volume = en_ntcs.TRVOLUME
-        
-        if self.has_traffic_results:
-            self.links[self.trafficvol] = self.links.eval(self.trafficvol_expr)
-            
+        # Define temporary column names
+        self.expr_colname = '_eval_'
+        self.fltr_colname = '_filtered_'
+
         self.err_msg_not_hypernetwork = \
             "This method cannot be run on a hypernetwork."
         self.err_msg_no_traffic_results = \
             "Network with traffic results required."
         self.err_msg_no_transit_results = \
             "Network with transit results required."
-        self.expr_colname = '_eval_'
-        self.fltr_colname = '_filtered_'
 
-        self.zone_ranges = sa.create_spatial_aggregator(
-            'custom_ranges', 
-            ranges=en_ntcs.ZONE_RANGES,
-            ids=self.nodes.loc[self.nodes['is_centroid']].index,
-            name='zone_regions'
-        )
-        self.node_ranges = sa.create_spatial_aggregator(
-            'custom_ranges', 
-            ranges=en_ntcs.NODE_RANGES,
-            ids=self.nodes.index,
-            name='zone_regions'
-        )          
+    def read_from_nwp(
+            self,
+            nwp_fp: str | PathLike,
+            *,
+            node_attributes: str | List[str] | None = None,
+            link_attributes: str |  List[str] | None = None,
+            tline_attributes: str | List[str] | None = None
+        ) -> None:
+        """ Read Emme network from TMG's nwp file format.
+        
+        Args:
+            nwp_fp: str | PathLike
+                Path to network package (.nwp) containing network and
+                (optionally) results.
+            coding_standard: str
+                Currently must be one of ['ncs11', 'ncs16', 'ncs22']
+            node_attributes: str | List[str] | None = None
+                Node extra attributes to import. If None will import all node 
+                extra attributes. To skip node extra attribute imports, set to [].
+                Default is None
+            link_attributes: str |  List[str] | None = None
+                Link extra attributes to import. If None will import all link 
+                extra attributes. To skip link extra attribute imports, set to []
+                Default is None
+            tline_attributes: str | List[str] | None = None
+                Transit line extra attributes to import. If None will import all 
+                transit line extra attributes. To skip node transit line attribute 
+                imports, set to []. Default is None
+
+        
+        """
+        linkcols_rename = {'data1': 'ul1', 'data2': 'ul2', 'data3': 'ul3'}
+        tlinecols_rename = {'data1': 'ut1', 'data2': 'ut2', 'data3': 'ut3'}
+        tsegcols_rename = {'data1': 'uS1', 'data2': 'uS2', 'data3': 'uS3'}
+
+        nwp_fp = Path(nwp_fp)
+        if not nwp_fp.is_file():
+            raise FileExistsError(f'File does not exsit: {nwp_fp}')
+        print(f'Reading Emme network from {nwp_fp}')
+        # Read nodes and links, extra attributes and results (if available)
+        print('  Reading in base network -- nodes and links')
+        self.nodes, self.links = read_nwp_base_network(nwp_fp, self.network_crs)
+        # Merge in node and link results, if desired
+        self.nodes = merge_attributes(
+            self.nodes, nwp_fp, read_nwp_node_attributes, node_attributes)
+        self.links = merge_attributes(
+            self.links, nwp_fp, read_nwp_link_attributes, link_attributes)
+        self.links = self.links.rename(linkcols_rename, axis=1)
+        try:
+            results = read_nwp_traffic_results(nwp_fp)
+            self.links = self.links.merge(
+                results, how='left', left_index=True, right_index=True)
+            self.has_traffic_results = True
+            print('  Network has traffic assignment results')
+        except KeyError:
+            self.has_traffic_results = False
+            print('  Network does not have traffic assignment results')
+
+        # Read in transit network, extra attributes and results (if available)
+        print('  Reading in transit network.')
+        self.tvehicles = read_nwp_transit_vehicles(nwp_fp)
+        self.tlines, self.tsegments = read_nwp_transit_network(nwp_fp)
+        try:
+            self.tlines = merge_attributes(
+                self.tlines, nwp_fp, read_nwp_transit_line_attributes, 
+                tline_attributes
+            )
+        except KeyError:
+            print('  Could not merge in transit line attributes.')
+        self.tlines = self.tlines.rename(tlinecols_rename, axis=1)
+        self.tsegments = self.tsegments.rename(tsegcols_rename, axis=1)
+        try:
+            results = read_nwp_transit_segment_results(
+                nwp_fp, self.tsegments)
+            self.tsegments = self.tsegments.merge(
+                results[['boardings', 'alightings', 'volume']], 
+                how='left', 
+                left_index=True, 
+                right_index=True
+            )
+            self.has_transit_results = True
+            print('  Network has transit assignment results.')
+        except KeyError:
+            self.has_transit_results = False
+            print('  Network does not have transit assignment results.')
+        print('  Completed reading Emme Network.')
+
+        # Set Emme-specific column names
+        self.link_fromnode_col = 'inode'
+        self.link_tonode_col = 'jnode'
+        self.node_is_centroid_col = 'is_centroid'
+        self.link_length_col = 'length'
+        self.link_allowed_modes_col = 'modes'
+        self.link_numlanes_col = 'lanes'
+        self.link_auto_capacity_col = 'auto_capacity'
+        self.links[self.link_auto_capacity_col] = \
+            self.links[self.link_numlanes_col] \
+                * self.links[self.link_lane_capacity_col]
+        if self.has_traffic_results:
+            self.link_auto_volume_col = 'auto_volume'
+            self.link_additional_volume_col = 'additional_volume'
+            self.link_total_volume_col = 'traffic_volume'
+            self.link_auto_travel_time_col = 'auto_time'
+            self.traffic_results_cols = \
+                ['auto_volume', 'additional_volume', 'auto_time']
+            self.links[self.link_total_volume_col] = \
+                self.links[self.link_auto_volume_col] \
+                    + self.links[self.link_additional_volume_col]
+        if self.has_transit_results:
+            self.tsegment_boardings_col = 'boardings'
+            self.tsegment_alightings_col = 'alightings'
+            self.tsegments_volume_col = 'volume'
+            self.transit_results_cols  = ['boardings', 'alightings', 'volume']
+
+        self.apply_link_classification()
+        self.calculate_link_direction()
+        self.apply_transit_operator()
+        self.apply_node_ranges()
+        self.apply_zone_ranges()
+
+    def apply_zone_ranges(self):
+        if self.zone_range_defs is not None:
+            zone_ranges = []
+            for k, v in self.zone_range_defs.items():
+                zone_ranges.append([k, v['min'], v['max']])
+            self.zone_ranges = sa.create_spatial_aggregator(
+                'custom_ranges', 
+                ranges=zone_ranges,
+                ids=self.nodes.loc[self.nodes[self.node_is_centroid_col]].index,
+                name='zone_ranges'
+            )
+
+    def apply_node_ranges(self) -> None:
+        if self.node_range_defs is not None:
+            node_ranges = []
+            for k, v in self.node_range_defs.items():
+                node_ranges.append([k, v['min'], v['max']])
+            self.node_ranges = sa.create_spatial_aggregator(
+                'custom_ranges', 
+                ranges=node_ranges,
+                ids=self.nodes.index,
+                name='node_ranges'
+            )
 
     def apply_link_classification(self):
         """ 
         Add link classification column, as defined in network coding standard
         to links table. 
         """
-        self.links[self.linkclass] = ''
-        for k, v in self.linkclass_exprs.items():
-            fltr = self.links[v['attr']].isin(v['values'])
-            self.links.loc[fltr, self.linkclass] = k  
+        if self.link_classification_defs is not None:
+            self.linkclass = 'link_class'
+            self.links[self.linkclass] = ''
+            for k, v in self.link_classification_defs.items():
+                fltr = self.links[v['attr']].isin(v['values'])
+                self.links.loc[fltr, self.linkclass] = k  
 
     def calculate_link_direction(self) -> None:
         """ 
@@ -159,15 +240,6 @@ class Network(object):
             lambda x: calc_linestring_orientation(
                 x['geometry'], self.grid_offset, 'cartesian'), axis=1)
 
-    def filter_link_connectors(self):
-        """ Returns copy of links table with connectors removed"""
-        fltr_inode_is_cntrd = self.links.index.get_level_values(
-            'inode').isin(self.zone_ranges().index)
-        fltr_jnode_is_cntrd = self.links.index.get_level_values(
-            'jnode').isin(self.zone_ranges().index)
-        return self.links.loc[
-            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
-
     def apply_transit_operator(self):
         """ 
         Apply the operator regex, defined in the enumeration,to append
@@ -175,13 +247,24 @@ class Network(object):
         """
         tlines_index = self.tlines.index
         tsegments_index = self.tsegments.index.get_level_values(0)
-        self.tlines['operator'] = ''
-        self.tsegments['operator'] = ''
-        for operator, regex_expr in self.transit_operator_regexpr.items():
+        self.tlines[self.toperator] = ''
+        self.tsegments[self.toperator] = ''
+        for operator, regex_expr in self.transit_opererator_regexprs.items():
             fltr = tlines_index.str.match(regex_expr)
-            self.tlines.loc[fltr, 'operator'] = operator
+            self.tlines.loc[fltr, self.toperator] = operator
             fltr = tsegments_index.str.match(regex_expr)
-            self.tsegments.loc[fltr, 'operator'] = operator
+            self.tsegments.loc[fltr, self.toperator] = operator
+
+    def filter_link_connectors(self):
+        """ Returns copy of links table with connectors removed"""
+        fltr_inode_is_cntrd = self.links.index.get_level_values(
+            self.link_fromnode_col).isin(self.zone_ranges().index)
+        fltr_jnode_is_cntrd = self.links.index.get_level_values(
+            self.link_tonode_col).isin(self.zone_ranges().index)
+        return self.links.loc[
+            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
+
+
 
 #region Auto traffic summary methods
     def summarize_link_attributes(
@@ -215,15 +298,14 @@ class Network(object):
                 segment by region. Default is None.
             aggregate_on_node: Must be defined if node_aggregation is defined.
                 Used to define if node aggregation is defined using 
-                I-node ('inode')  or J-node ('jnode').  Default is 'inode'
             segment_by_linkclass: bool
                 If True, additionally segment VKT by link classification.
         """
         # Lookup the expression
         if summary == 'length':
-            expression = self.length
+            expression = self.link_length_col
         elif summary == 'lane_length':
-            expression = f'{self.length} * {self.lanes}'
+            expression = f'{self.link_length_col} * {self.link_numlanes_col}'
         elif summary == 'vkt':
             expression = self.traffic_vkt_expr
         elif summary == 'vht':
@@ -250,8 +332,11 @@ class Network(object):
         # Set cross-tab columns, either by link facility type
         # and/or node aggregation.
         if node_aggregation is not None:
-            if aggregate_on_node not in ['inode', 'jnode']:
-                raise ValueError("Invalid parameter 'aggregate_on_node'.")
+            if aggregate_on_node not in [
+                    self.link_fromnode_col, self.link_tonode_col]:
+                raise ValueError(
+                    f"Invalid parameter 'aggregate_on_node'. Must be either "
+                    f"{self.link_fromnode_col} or {self.link_tonode_col}")
             aggr_colname = node_aggregation().name
             crosstab_columns = [aggr_colname]
         else:
@@ -326,28 +411,23 @@ class Network(object):
                     - 'traffic_vol': auto + additional volumes
     
         """
-        linkcap_col = 'link_cap'
         screenlines = screenlines.to_crs(self.links.crs)
 
         # Filter out the connectors
         links = self.filter_link_connectors()
 
         # Remove non-auto-links
-        fltr = links['modes'].str.contains(self.auto_mode)
+        fltr = links[self.link_allowed_modes_col].str.contains(self.automode_id)
         links = links.loc[fltr]
-        # Calculate lane capacity
-        links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
         summary_columns = ['n_links', 'n_lanes', 'capacity']
-        # Set the aggregation dictionary, which will be used in the 
-        # .groupby command
         aggr_dict = {
-            self.lanes: ['count', 'sum'], # of links and number of lanes
-            linkcap_col: 'sum',           # vehicle capacity
+            self.link_numlanes_col: ['count', 'sum'],       
+            self.link_auto_capacity_col: 'sum',
         }
         if self.has_traffic_results:
-            aggr_dict[self.autovol] = 'sum'
-            aggr_dict[self.autoaddvol] = 'sum'
-            aggr_dict[self.trafficvol] = 'sum'
+            aggr_dict[self.link_auto_volume_col] = 'sum'
+            aggr_dict[self.link_additional_volume_col] = 'sum'
+            aggr_dict[self.link_total_volume_col] = 'sum'
             summary_columns.extend([
                 'auto_vol', 'additional_vol', 'traffic_vol'])
 
@@ -1147,45 +1227,7 @@ class Network(object):
 #endregion
 
 
-#region Export to NWP
-    # def to_nwp(self, fp: PathLike, header_comment_lines: List | None = None
-    #     ) -> None:
-    #     """ Export package to Emme-based NWP format. 
-        
-    #     Args:
-    #         fp: PathLike
-    #             Filepath of exported .NWP file
-    #         header_comment_lines:
-    #             A list of comments to be added as headers to all 
-    #             Emme transactation files. Max 78 characters per entry.
-            
-    #     """
-        
-    #     # Find the Windows temp directory, clear if it already exists
-    #     temp_dir = Path(environ['TMP']) / 'GTAModel_Tools'
-    #     if temp_dir.exists():
-    #         rmtree(temp_dir)
-    #     temp_dir.mkdir()
-        
-    #     self._write_base_network(temp_dir / 'base.211', header_comment_lines)
-    #     pass
 
-    # def _prepare_node_base_output(node: pd.Series):
-    #     pass
-
-    # def _write_base_network(
-    #     self, fp: PathLike, header_comment_lines: List | None = None) -> None:
-    #     with open(fp, 'w') as f:
-    #         f.write('c Emme Modeller - Base Network Transaction')
-    #         f.write('')
-    #         if hcl is not None:
-    #             for hcl in header_comment_lines:
-    #                 f.write(f'c {hcl}')
-    #             f.write('')
-    #         f.write('t nodes')
-    #         f.write('c   Node          X-coord          Y-coord   Data1   Data2   Data3 Label')
-    #         for 
-#endregion
 
 
 
@@ -1194,22 +1236,23 @@ class Network(object):
 
     @property
     def traffic_vkt_expr(self) -> str:
-        return f'{self.length} * {self.trafficvol}'
+        return f'{self.link_length_col} * {self.link_total_volume_col}'
 
     @property
     def traffic_vht_expr(self) -> str:
-        return f'{self.autotime} * {self.trafficvol} / 60.0'
+        return f'{self.link_auto_travel_time_col} * {self.link_total_volume_col} / 60.0'
 
     @property
     def vcr_extr(self) -> str:
-        return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
+        return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
 
     @property
     def transit_vkt_expr(self) -> str:
-        return f'{self.length} * {self.transit_volume}'
+        return f'{self.link_length_col} * {self.tsegments_volume_col}'
 
     @property
     def is_hypernetwork(self) -> bool:
         return self._test_if_hypernetwork()
 
 #endregion
+

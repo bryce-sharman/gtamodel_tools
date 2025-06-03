@@ -20,7 +20,8 @@ dependencies = [
     "pandas", 
     "pyogrio",
     "pytest",
-    "shapely"]
+    "shapely",
+    "yaml"]
 classifiers = [
     "License :: OSI Approved || MIT License",
     "Operating System :: OS Independent",

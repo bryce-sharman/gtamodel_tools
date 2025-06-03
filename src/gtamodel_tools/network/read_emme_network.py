@@ -21,7 +21,7 @@ from shapely import LineString, Point
 from typing import Callable, Hashable, List, Tuple, Union
 import zipfile
 
-from gtamodel_tools.network.network import Network
+# from gtamodel_tools.network.network import Network
 
 
 idx = pd.IndexSlice
@@ -38,10 +38,7 @@ EMME_ENG_UNITS = {
     'T': 1E12
 }
 
-LINKCOLS_RENAME = {'data1': 'ul1', 'data2': 'ul2', 'data3': 'ul3'}
-TLINECOLS_RENAME = {'data1': 'ut1', 'data2': 'ut2', 'data3': 'ut3'}
-TSEGCOLS_RENAME = {'data1': 'uS1', 'data2': 'uS2', 'data3': 'uS3'}
-
+'''
 def read_emme_network_from_nwp(
         nwp_fp: str | PathLike,
         coding_standard: str,
@@ -142,7 +139,7 @@ def read_emme_network_from_nwp(
         has_traffic_results, has_transit_results
     )
 
-
+'''
 
 def parse_tmg_ncs_line_id(s: pd.Series) -> Tuple[pd.Series, pd.Series]:
     """
@@ -238,7 +235,7 @@ def read_nwp_base_network(
         mask_mod = links['c'] == 'm'
         n_modified_links = len(links[mask_mod])
         if n_modified_links > 0:
-            print(f'    Ignored {n_modified_links} modification records '
+            print(f'  Ignored {n_modified_links} modification records '
                   f'in the links table')
         links = links[~mask_mod].drop('c', axis=1)
         if 'typ' in links.columns:
@@ -264,7 +261,6 @@ def read_nwp_base_network(
         'x-coord': [], 
         'y-coord': []
     }
-    print("Creating link geometries, this may take a while.")
     sep = ' '  # Separator used when exporting link shapes in NWP tools
     with zipfile.ZipFile(nwp_fp) as zf:
         for i, line in enumerate(zf.open('shapes.251'), start=1):
@@ -297,7 +293,6 @@ def read_nwp_base_network(
 
         link_geometry.at[i_node, j_node] = LineString(pt_list)
     links = gpd.GeoDataFrame(links, geometry=link_geometry, crs=crs)
-    print("Completed reading nodes and links.")
     return nodes, links
 
 def read_nwp_exatts_list(nwp_fp: Union[str, PathLike], **kwargs) -> pd.DataFrame:
@@ -327,7 +322,7 @@ def read_nwp_exatts_list(nwp_fp: Union[str, PathLike], **kwargs) -> pd.DataFrame
     return df
 
 
-def _base_read_nwp_att_data(nwp_fp: Union[str, PathLike], att_type: str, index_col: Union[str, List[str]],
+def base_read_nwp_att_data(nwp_fp: Union[str, PathLike], att_type: str, index_col: Union[str, List[str]],
                             attributes: Union[str, List[str]] = None, **kwargs) -> pd.DataFrame:
     nwp_fp = Path(nwp_fp)
     if not nwp_fp.exists():
@@ -371,7 +366,7 @@ def read_nwp_node_attributes(nwp_fp: Union[str, PathLike], *, attributes: Union[
     Returns:
         pd.DataFrame
     """
-    return _base_read_nwp_att_data(nwp_fp, 'nodes', 'inode', attributes, **kwargs)
+    return base_read_nwp_att_data(nwp_fp, 'nodes', 'inode', attributes, **kwargs)
 
 
 def read_nwp_link_attributes(nwp_fp: Union[str, PathLike], *, attributes: Union[str, List[str]] = None,
@@ -387,7 +382,7 @@ def read_nwp_link_attributes(nwp_fp: Union[str, PathLike], *, attributes: Union[
     Returns:
         pd.DataFrame
     """
-    return _base_read_nwp_att_data(nwp_fp, 'links', ['inode', 'jnode'], attributes, **kwargs)
+    return base_read_nwp_att_data(nwp_fp, 'links', ['inode', 'jnode'], attributes, **kwargs)
 
 
 def read_nwp_transit_line_attributes(nwp_fp: Union[str, PathLike], *, attributes: Union[str, List[str]] = None,
@@ -404,7 +399,7 @@ def read_nwp_transit_line_attributes(nwp_fp: Union[str, PathLike], *, attributes
     Returns:
         pd.DataFrame
     """
-    return _base_read_nwp_att_data(nwp_fp, 'transit_lines', 'line', attributes, **kwargs)
+    return base_read_nwp_att_data(nwp_fp, 'transit_lines', 'line', attributes, **kwargs)
 
 
 def read_nwp_traffic_results(nwp_fp: Union[str, PathLike]) -> pd.DataFrame:
@@ -526,7 +521,7 @@ def read_nwp_transit_segment_results(
     segments['volume'] = results['transit_volume'].round(3)
     n_missing_segments = len(segments[segments['boardings'].isnull()])
     if n_missing_segments > 0:
-        print(f'Found {n_missing_segments} segments with missing results; '
+        print(f'  Found {n_missing_segments} segments with missing results; '
               f'their results will be set to 0')
         segments.fillna(0, inplace=True)
     segments.reset_index(inplace=True)
@@ -577,7 +572,7 @@ def read_nwp_transit_vehicles(nwp_fp: Union[str, PathLike]) -> pd.DataFrame:
 
     return vehicles
 
-def _merge_attributes(
+def merge_attributes(
         left_df: pd.DataFrame,
         nwp_fp: str | PathLike,
         attr_function: Callable,

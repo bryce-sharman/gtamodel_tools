@@ -1,0 +1,291 @@
+---
+###############################################################################
+# This configuration file was used by City of Toronto staff in forecasting
+# runs for the TTC.
+#
+# Run description:
+# 
+# GTAModel Version: GTAModel v.0
+# Assignment software: Emme
+# Network Coding standard: 
+#   Early NCS22 (NCS22 has not yet been finalized)
+#   Primarily uses NCS16, but some customizations
+# Zone System: 
+#   - TTS22 zone system within Toronto (0-999 range) 
+#   - TTS06 zone system outside of Toronto
+#   - Extents include GTHA
+#
+# Network Description:
+#   - Early version of TMG 2022 base year update with custom modifications
+#   - Uses GO Topology
+#   - Future lines include
+#     - Line 3 (Ontario Line; old line 3 is removed)
+#     - Line 5 (Eglinton Crosstown)
+#     - Line 6 (Finch West)
+#     - Line 7: Code for Eglinton East Extensions 
+# 
+###############################################################################
+
+###############################################################################
+# Model structure
+###############################################################################
+
+# Network and microsimulation subdirectories
+model_outputs_subdirectory: Model Outputs
+network_subdirectory: Networks
+microsim_subdirectory: MicroSim Results
+
+# Filenames of files holding microsim results within the microsim subdirectory
+microsim_filenames:
+  households: Households.csv.gz
+  persons: Persons.csv.gz
+  trips: Trips.csv.gz
+  trip_modes: Trip_Modes.csv.gz
+  trip_stations: Trip_Stations.csv.gz
+  facilitate_passenger: Facilitate_Passenger.csv.gz
+
+# Time period definitions
+# auto_pfh must match those in the GTAModel run specifications
+# Transit peak-hour factors are only used for post-processing
+# Start and end times are in minutes after midnight
+# Start times are inclusive; end times are exclusive
+# Start and end time must be enclosed in quotes to force them to be 
+# imported as strings.
+time_period_definitions:
+    AM: 
+      is_assigned: True
+      auto_phf: 2.29
+      transit_phf: 2.04
+      start_time: 360
+      end_time: 540
+    MD:
+      is_assigned: True
+      auto_phf: 6.00
+      transit_phf: 6.00
+      start_time: 540
+      end_time: 900
+    PM:
+      is_assigned: True
+      auto_phf: 2.60
+      transit_phf: 3.03
+      start_time: 900
+      end_time: 1140
+    EV:   
+      is_assigned: True
+      auto_phf: 5.00
+      transit_phf: 5.00
+      start_time: 1140
+      end_time: 1440
+    ON:
+      is_assigned: False
+      auto_phf: 6.00
+      transit_phf: 6.00
+      start_time: 0
+      end_time: 360
+
+
+###############################################################################
+# Network configuration
+###############################################################################
+
+# coordinate reference system underlying network coordinates
+network_crs: EPSG:26917     # UTM 17N (NAD83)
+
+# angle between true-north and local north (degrees counter-clockwise)
+# used for interpretation of validation count data.
+grid_offset: 17 
+
+# the following inputs reflect Toronto coding standards using Emme
+automode_id: c
+link_freeflow_speed_col: ul2
+link_lane_capacity_col: ul3
+
+
+# User-defined link classifications
+# This is a dictionary, where each item is composed as follows:
+#   - key: classification label
+#   - dictionary:
+#     - 'attr': attribute used to identify link classification
+#     - 'values': values of attribute to include in segment
+link_classification_defs:
+  freeway: 
+    attr: vdf
+    values: [11, 12]
+  exclusive:
+    attr: vdf
+    values: [14, 16, 41]
+  ramp:
+    attr: vdf
+    values: [13, 15, 17]
+  arterial:
+    attr: vdf
+    values: [20, 21, 30, 40, 42, 50]
+  collector:
+    attr: vdf
+    values: [22, 31, 51]
+  connector:
+    attr: vdf
+    values: [90]
+
+# The following outlines zone ranges, based on the zone number
+# Format is a dictionary where each item is a sub-dictionary (defined as follows)  
+#   the key is the label
+#   min: minimum (inclusive)
+#   max: maximum (exclusive)
+zone_ranges:
+  Unassigned: {min: 1, max: 1000}
+  Toronto: {min: 1000, max: 2000}
+  Durham: {min: 2000, max: 3000}
+  York: {min: 3000, max: 4000}
+  Peel: {min: 4000, max: 5000}
+  Halton: {min: 5000, max: 6000}
+  Hamilton: {min: 6000, max: 7000}
+  Niagara: {min: 7000, max: 7200}
+  Reserved: {min: 7200, max: 8000}
+  Haldimand-Norfolk: {min: 8000, max: 8100}
+  Brant: {min: 8100, max: 8200}
+  Waterloo: {min: 8200, max: 8500}
+  Wellington: {min: 8500, max: 8700}
+  Dufferin: {min: 8700, max: 8800}
+  Simcoe: {min: 8800, max: 9000}
+  Kawartha Lakes: {min: 9000, max: 9100}
+  Peterborough: {min: 9100, max: 9300}
+  Northumberland: {min: 9300, max: 9400}
+  Gateways: {min: 9400, max: 9500}
+  Stations: {min: 9500, max: 10000}
+
+# The following outlines node ranges, based on the node number
+# Format is a dictionary where each item is a subdictionary (defined as follows)  
+#   the key is the label
+#   min: minimum (inclusive)
+#   max: maximum (exclusive)
+node_ranges: 
+  centroid: {min: 0, max: 10000}
+  Toronto: {min: 10000, max: 20000}
+  Durham: {min: 20000, max: 30000}
+  York: {min: 30000, max: 40000}
+  Peel: {min: 40000, max: 50000}
+  Halton: {min: 50000, max: 60000}
+  Hamilton: {min: 60000, max: 70000}
+  Niagara: {min: 70000, max: 80000}
+  Haldimand-Norfolk: {min:  80000, max: 81000}
+  Brant: {min:  81000, max: 82000}
+  Waterloo: {min:  82000, max: 85000}
+  Wellington: {min:  85000, max: 87000}
+  Dufferin: {min:  87000, max: 88000}
+  Simcoe: {min:  88000, max: 90000}
+  Kawartha Lakes: {min: 90000, max: 91000}
+  Peterborough: {min: 91000, max: 92000}
+  External zones/gateways (Canada): {min: 94000, max: 95000}
+  External zones/gateways (US): {min: 95000, max: 96000}
+  BRT/LRT platform: {min: 96000,max:  97000}
+  Subway platform: {min:  97000, max: 98000}
+  GO Rail platform: {min:  98000, max: 99000}
+  Hypernetwork nodes: {min: 100000, max: 900000}
+  HOV: {min: 900000, max: 1000000}
+
+# The following provides regular expressions that can be used to identify
+# the operator from the transit line name. 
+# As a general note on regular expressions, a '^' beginning a string means
+# to look for a match at the start of the string (as opposed to anywhere
+# in the string). For example: ^D will match any string starting with the 
+# letter D.
+transit_opererator_regexprs:
+  Durham: ^D,
+  Burlington: ^HB
+  Oakville: ^HO
+  Milton: ^HM
+  Brampton: ^B
+  MiWay: ^M
+  Hamilton: ^W
+  YRT (not Viva): ^Y[0-9]
+  YRT (Viva): ^YV
+  TTC (Subway): ^T00[1-4]   # matches T001*, T002*, T003*, T004*
+  TTC (LRT): ^T00[5-7]      # matches T005*, T006*, T007*
+  TTC (Streetcar): ^T5,     
+  TTC (Night Bus): ^T3,     
+  TTC (Express Bus): ^T9,     
+  # the following line matches any TTC route not identified above
+  # the '|' character is a OR operator, matching any of the groups
+  # denoted in parentheses
+  TTC (bus): (^T[124678])|(^T0[1-9])|(^T00[89])
+  GO Bus: ^GB
+  GO Train: ^GT
+  Link Train: ^L
+
+
+###############################################################################
+# Microsim configuration
+###############################################################################
+
+# Number of samples used in the trip mode choice
+# This is 100 in version v4.0, and 10 in versions v4.1 and 4.2.
+microsim_tripmode_nsamples: 100
+
+# The following is an optional command used to convert filenames
+# to the existing GTAModel standard, which is currently GTAModel v4.2
+# This is used in this case as the City is currently using the older v4.0
+# model, which has slightly different column names.
+# This label operates as a dictionary, where the key is the column
+# name in the output of this run. (v4.0 in this case) while the label is the 
+# name in the standard GTAModel output (currently v4.2).
+microsim_rename_columns:
+  households: 
+    id: household_id
+    home_zone: home_zone
+    weight: weight
+    n_persons: persons
+    dtype: dwelling_type
+    n_vehicles: vehicles
+    income_class: income_class
+  persons:
+    hhld_id: household_id
+    pers_id: person_id
+    age: age
+    sex: sex
+    has_drvs_lic: license
+    has_trns_pass: transit_pass
+    emp_status: employment_status
+    occup: occupation
+    has_free_parking: free_parking
+    std_status: student_status
+    work_zone: work_zone
+    school_zone: school_zone
+    weight: weight
+  trips:
+    hhld_id: household_id
+    pers_id: person_id
+    trip_id: trip_id
+    oact: o_act
+    ozone: o_zone
+    dact: d_act
+    dzone: d_zone
+    weight: weight
+  trip_modes: 
+    hld_id: household_id
+    pers_id: person_id
+    trip_id: trip_id
+    mode: mode
+    dep_time: o_depart
+    arr_time: d_arrive
+    weight: weight
+  trp_stations: 
+    hhld_id: household_id
+    pers_id: person_id
+    trip_id: trip_id
+    station: station
+    direction: direction
+    weight: weight
+    mode: mod
+  facilitate_passenger: 
+    hhld_id: household_id
+    pass_id: passenger_id
+    pass_trip_id: passenger_trip_id
+    driver_id: driver_id
+    driver_trip_id: driver_trip_id
+    weight: weight
+
+
+
+# TRAFFIC_RESULTS_COLNAMES = [AUTOVOL_COL, AUTOADDVOL_COL, AUTOTIME_COL]
+# TRANSIT_RESULTS_COLNAMES  = [TRBOARDINGS_COL, TRALIGHTINGS_COL, TRVOLUME]
