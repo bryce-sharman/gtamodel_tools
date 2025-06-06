@@ -76,7 +76,7 @@ time_period_definitions:
       transit_phf: 5.00
       start_time: 1140
       end_time: 1440
-    ON:
+    'ON':     #ON needs to be in quotes, or yaml.safe_load converts to True
       is_assigned: False
       auto_phf: 6.00
       transit_phf: 6.00
@@ -191,7 +191,7 @@ node_ranges:
 # in the string). For example: ^D will match any string starting with the 
 # letter D.
 transit_opererator_regexprs:
-  Durham: ^D,
+  Durham: ^D
   Burlington: ^HB
   Oakville: ^HO
   Milton: ^HM
@@ -202,9 +202,9 @@ transit_opererator_regexprs:
   YRT (Viva): ^YV
   TTC (Subway): ^T00[1-4]   # matches T001*, T002*, T003*, T004*
   TTC (LRT): ^T00[5-7]      # matches T005*, T006*, T007*
-  TTC (Streetcar): ^T5,     
-  TTC (Night Bus): ^T3,     
-  TTC (Express Bus): ^T9,     
+  TTC (Streetcar): ^T5     
+  TTC (Night Bus): ^T3   
+  TTC (Express Bus): ^T9   
   # the following line matches any TTC route not identified above
   # the '|' character is a OR operator, matching any of the groups
   # denoted in parentheses

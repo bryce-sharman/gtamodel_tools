@@ -6,8 +6,7 @@ Network packages are a development of the TravelModellingGroup at the
 University of Toronto that extends Emme's text output to include 
 assignment results.
 
-The code in this module is based on a design and code graciously provided by 
-WSP Canada. 
+The code in this module was graciously provided by WSP Canada. 
  
 """
 from pathlib import Path
@@ -38,108 +37,6 @@ EMME_ENG_UNITS = {
     'T': 1E12
 }
 
-'''
-def read_emme_network_from_nwp(
-        nwp_fp: str | PathLike,
-        coding_standard: str,
-        *,
-        node_attributes: str | List[str] | None = None,
-        link_attributes: str |  List[str] | None = None,
-        tline_attributes: str | List[str] | None = None
-    ) -> Network:
-    """ Read Emme network from TMG's nwp file format.
-    
-    
-        nwp_fp: str | PathLike
-            Path to network package (.nwp) containing network and
-            (optionally) results.
-        coding_standard: str
-            Currently must be one of ['ncs11', 'ncs16', 'ncs22']
-        node_attributes: str | List[str] | None = None
-            Node extra attributes to import. If None will import all node 
-            extra attributes. To skip node extra attribute imports, set to [].
-            Default is None
-        link_attributes: str |  List[str] | None = None
-            Link extra attributes to import. If None will import all link 
-            extra attributes. To skip link extra attribute imports, set to []
-            Default is None
-        tline_attributes: str | List[str] | None = None
-            Transit line extra attributes to import. If None will import all 
-            transit line extra attributes. To skip node transit line attribute 
-            imports, set to []. Default is None
-
-    
-    """
-   
-    # Define columns as per coding standard
-    if coding_standard == 'ncs11':
-        import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
-    elif coding_standard == 'ncs16':
-        import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
-    elif coding_standard == 'ncs22':
-        import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
-    else:
-        raise ValueError("Invalid Emme coding standard.")
-    crs = en_ntcs.CRS
-
-    nwp_fp = Path(nwp_fp)
-    if not nwp_fp.is_file():
-        raise FileExistsError(f'File does not exsit: {nwp_fp}')
-
-    # Read nodes and links, extra attributes and results (if available)
-    print('    Reading in base network -- nodes and links')
-    nodes, links = read_nwp_base_network(nwp_fp, crs)
-    # Merge in node and link results, if desired
-    print('    Merging node and link attributes.')
-    nodes = _merge_attributes(
-        nodes, nwp_fp, read_nwp_node_attributes, node_attributes)
-    links = _merge_attributes(
-        links, nwp_fp, read_nwp_link_attributes, link_attributes)
-    links = links.rename(LINKCOLS_RENAME, axis=1)
-
-    try:
-        results = read_nwp_traffic_results(nwp_fp)
-        links = links.merge(
-            results, how='left', left_index=True, right_index=True)
-        has_traffic_results = True
-    except KeyError:
-        has_traffic_results = False
-
-    # Read in transit network, extra attributes and results (if available)
-    print('Reading in transit network.')
-    tvehicles = read_nwp_transit_vehicles(nwp_fp)
-    tlines, tsegments = read_nwp_transit_network(nwp_fp)
-    print('    Merging in transit attributes.')
-    try:
-
-        tlines = _merge_attributes(
-            tlines, nwp_fp, read_nwp_transit_line_attributes, 
-            tline_attributes
-        )
-    except KeyError:
-        print('     Could not merge in transit line attributes.')
-    tlines = tlines.rename(TLINECOLS_RENAME, axis=1)
-
-    tsegments = tsegments.rename(TSEGCOLS_RENAME, axis=1)
-    try:
-        results = read_nwp_transit_segment_results(
-            nwp_fp, tsegments)
-        tsegments = tsegments.merge(
-            results[['boardings', 'alightings', 'volume']], 
-            how='left', 
-            left_index=True, 
-            right_index=True
-        )
-        has_transit_results = True
-    except KeyError:
-        has_transit_results = False
-    print('    Completed reading Emme Network.')
-    return Network(
-        nodes, links, tvehicles, tlines, tsegments, coding_standard, 
-        has_traffic_results, has_transit_results
-    )
-
-'''
 
 def parse_tmg_ncs_line_id(s: pd.Series) -> Tuple[pd.Series, pd.Series]:
     """

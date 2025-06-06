@@ -14,3 +14,4 @@ dependencies:
   - pyogrio=0.7.*
   - pytest
   - shapely
+  - yaml
