@@ -11,20 +11,22 @@ assignment results.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
 import geopandas as gpd
-from math import fabs
 import numpy as np
-from os import environ, PathLike
+from os import PathLike
 import pandas as pd
 from pathlib import Path
-from shutil import rmtree
-from typing import Dict, List, Hashable, Self, Type
-
+from typing import Dict, List, Self, Type
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
-import gtamodel_tools.enums.validation.traffic.traffic as en_traffic
+from gtamodel_tools.config import Config
+from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
+    merge_attributes, read_nwp_node_attributes, read_nwp_link_attributes, \
+    read_nwp_traffic_results, read_nwp_transit_vehicles, \
+    read_nwp_transit_network, read_nwp_transit_line_attributes, \
+    read_nwp_transit_segment_results
+
 
 idx = pd.IndexSlice
 
@@ -33,120 +35,210 @@ class Network(object):
     Stores Emme network, optionally including results, and includes low-level
     summary methods.
 
-    Parameters:
-        nodes: gpd.GeoDataFrame
-            Node definitions including attributes and Point geometry
-        links: gpd.GeomDataFrame
-            Link definitions including attributes and LineString geometry
-        tvehicles: pd.DataFrame
-            Transit vehicle definitions
-        tlines: pd.DataFrame
-            Transit line definitions
-        tsegments: pd.DataFrame,
-            Transit segment definitions
-        coding_standard: str
-            Currently must be one of ['ncs11', 'ncs16', 'ncs22'], but it is
-            anticipated to add more in the future.
-        has_traffic_results: bool
-            True if network includes traffic results
-        has_transit_results: bool
-            True if network includes transit results
+    Args:
+        config: gtamodel_tools.config.Config
+            Stored post-processsing configuration.
 
     """
 
-    def __init__(
-            self, 
-            nodes: gpd.GeoDataFrame,
-            links: gpd.GeomDataFrame,
-            tvehicles: pd.DataFrame,
-            tlines: pd.DataFrame,
-            tsegments: pd.DataFrame,
-            coding_standard: str,
-            has_traffic_results: bool,
-            has_transit_results: bool
-        ) -> None:
-        # Define columns as per coding standard
-        if coding_standard == 'ncs11':
-            import gtamodel_tools.enums.network.toronto_ncs11 as en_ntcs
-        elif coding_standard == 'ncs16':
-            import gtamodel_tools.enums.network.toronto_ncs16 as en_ntcs
-        elif coding_standard == 'ncs22':
-            import gtamodel_tools.enums.network.toronto_ncs22 as en_ntcs
-        self.coding_standard = coding_standard
-        self.crs = en_ntcs.CRS
-        self.grid_offset = en_ntcs.GRID_OFFSET
-        self.link_dir_col = 'link_dir'
+    def __init__(self, config: Config) -> None:
 
-        self.min_regnode_id = en_ntcs.MIN_REGNODE_ID
-        self.auto_mode = en_ntcs.AUTO_MODE
-        self.length = en_ntcs.LENGTH_COL
-        self.modes = en_ntcs.MODES_COL
-        self.type = en_ntcs.TYPE_COL
-        self.lanes = en_ntcs.LANES_COL
-        self.ffspd = en_ntcs.FFSPD_COL
-        self.lanecap = en_ntcs.LANECAP_COL
-        self.linkclass = 'link_class'
-        self.linkclass_exprs = en_ntcs.LINK_CLASSIFICATION_EXPRS
+        # The following attributes are defined directly in the config file
+        self.network_crs = config.network_crs
+        self.grid_offset = config.grid_offset
+        self.automode_id = config.automode_id
+        self.link_freeflow_speed_col = config.link_freeflow_speed_col
+        self.link_lane_capacity_col = config.link_lane_capacity_col
+        self.time_periods = config.time_periods
+        self.link_classification_defs = config.link_classification_defs
+        self.zone_range_defs = config.zone_ranges
+        self.node_range_defs = config.node_ranges
+        self.transit_opererator_regexprs = config.transit_opererator_regexprs
 
-        self.nodes = nodes
-        self.links = links
-        self.tvehicles = tvehicles
-        self.tlines = tlines
-        self.tsegments = tsegments
-        self.transit_operator_regexpr = en_ntcs.TRANSIT_OPERATOR_REGEXPR
+        # Column to store cartesian directions, used to match validation counts
+        self.link_dir_col = 'link_dir' 
 
-        self.apply_link_classification()
-        self.calculate_link_direction()
-        self.apply_transit_operator()
-        self.toperator = "operator"
+        # Define temporary column names
+        self.expr_colname = '_eval_'
+        self.fltr_colname = '_filtered_'
 
-        self.has_traffic_results = has_traffic_results
-        self.autovol = en_ntcs.AUTOVOL_COL
-        self.autoaddvol = en_ntcs.AUTOADDVOL_COL
-        self.trafficvol = 'traffic_volume'
-        self.trafficvol_expr = en_ntcs.TRAFFIC_VOL
-        self.autotime = en_ntcs.AUTOTIME_COL
-        self.traffic_results = en_ntcs.TRAFFIC_RESULTS_COLNAMES
-        self.has_transit_results = has_transit_results
-        self.transit_results = en_ntcs.TRANSIT_RESULTS_COLNAMES
-        self.transit_boardings = en_ntcs.TRBOARDINGS_COL
-        self.transit_alightings = en_ntcs.TRALIGHTINGS_COL
-        self.transit_volume = en_ntcs.TRVOLUME
-        
-        if self.has_traffic_results:
-            self.links[self.trafficvol] = self.links.eval(self.trafficvol_expr)
-            
         self.err_msg_not_hypernetwork = \
             "This method cannot be run on a hypernetwork."
         self.err_msg_no_traffic_results = \
             "Network with traffic results required."
         self.err_msg_no_transit_results = \
             "Network with transit results required."
-        self.expr_colname = '_eval_'
-        self.fltr_colname = '_filtered_'
 
-        self.zone_ranges = sa.create_spatial_aggregator(
-            'custom_ranges', 
-            ranges=en_ntcs.ZONE_RANGES,
-            ids=self.nodes.loc[self.nodes['is_centroid']].index,
-            name='zone_regions'
-        )
-        self.node_ranges = sa.create_spatial_aggregator(
-            'custom_ranges', 
-            ranges=en_ntcs.NODE_RANGES,
-            ids=self.nodes.index,
-            name='zone_regions'
-        )          
+    def read_from_nwp(
+            self,
+            nwp_fp: str | PathLike,
+            *,
+            node_attributes: str | List[str] | None = None,
+            link_attributes: str |  List[str] | None = None,
+            tline_attributes: str | List[str] | None = None
+        ) -> None:
+        """ Read Emme network from TMG's nwp file format.
+        
+        Args:
+            nwp_fp: str | PathLike
+                Path to network package (.nwp) containing network and
+                (optionally) results.
+            coding_standard: str
+                Currently must be one of ['ncs11', 'ncs16', 'ncs22']
+            node_attributes: str | List[str] | None = None
+                Node extra attributes to import. If None will import all node 
+                extra attributes. To skip node extra attribute imports, set to [].
+                Default is None
+            link_attributes: str |  List[str] | None = None
+                Link extra attributes to import. If None will import all link 
+                extra attributes. To skip link extra attribute imports, set to []
+                Default is None
+            tline_attributes: str | List[str] | None = None
+                Transit line extra attributes to import. If None will import all 
+                transit line extra attributes. To skip node transit line attribute 
+                imports, set to []. Default is None
+
+        
+        """
+        linkcols_rename = {'data1': 'ul1', 'data2': 'ul2', 'data3': 'ul3'}
+        tlinecols_rename = {'data1': 'ut1', 'data2': 'ut2', 'data3': 'ut3'}
+        tsegcols_rename = {'data1': 'uS1', 'data2': 'uS2', 'data3': 'uS3'}
+
+        nwp_fp = Path(nwp_fp)
+        if not nwp_fp.is_file():
+            raise FileExistsError(f'File does not exsit: {nwp_fp}')
+        print(f'Reading Emme network from {nwp_fp}')
+        # Read nodes and links, extra attributes and results (if available)
+        print('  Reading in base network -- nodes and links')
+        self.nodes, self.links = read_nwp_base_network(nwp_fp, self.network_crs)
+        # Merge in node and link results, if desired
+        self.nodes = merge_attributes(
+            self.nodes, nwp_fp, read_nwp_node_attributes, node_attributes)
+        self.links = merge_attributes(
+            self.links, nwp_fp, read_nwp_link_attributes, link_attributes)
+        self.links = self.links.rename(linkcols_rename, axis=1)
+        try:
+            results = read_nwp_traffic_results(nwp_fp)
+            self.links = self.links.merge(
+                results, how='left', left_index=True, right_index=True)
+            self.has_traffic_results = True
+            print('  Network has traffic assignment results')
+        except KeyError:
+            self.has_traffic_results = False
+            print('  Network does not have traffic assignment results')
+
+        # Read in transit network, extra attributes and results (if available)
+        print('  Reading in transit network.')
+        self.tvehicles = read_nwp_transit_vehicles(nwp_fp)
+        self.tlines, self.tsegments = read_nwp_transit_network(nwp_fp)
+        try:
+            self.tlines = merge_attributes(
+                self.tlines, nwp_fp, read_nwp_transit_line_attributes, 
+                tline_attributes
+            )
+        except KeyError:
+            print('  Could not merge in transit line attributes.')
+        self.tlines = self.tlines.rename(tlinecols_rename, axis=1)
+        self.tsegments = self.tsegments.rename(tsegcols_rename, axis=1)
+        try:
+            results = read_nwp_transit_segment_results(
+                nwp_fp, self.tsegments)
+            self.tsegments = self.tsegments.merge(
+                results[['boardings', 'alightings', 'volume']], 
+                how='left', 
+                left_index=True, 
+                right_index=True
+            )
+            self.has_transit_results = True
+            print('  Network has transit assignment results.')
+        except KeyError:
+            self.has_transit_results = False
+            print('  Network does not have transit assignment results.')
+
+
+        # Set Emme-specific column names
+        self.nodeid_col = 'node'
+        self.node_is_centroid_col = 'is_centroid'
+        self.link_fromnode_col = 'inode'
+        self.link_tonode_col = 'jnode'
+        self.link_length_col = 'length'
+        self.link_allowed_modes_col = 'modes'
+        self.link_numlanes_col = 'lanes'
+        self.link_auto_capacity_col = 'auto_capacity'
+        self.links[self.link_auto_capacity_col] = \
+            self.links[self.link_numlanes_col] \
+                * self.links[self.link_lane_capacity_col]
+        # Transit columns
+        self.toperator = "operator"
+        self.tvehs_veh_col = 'veh'
+        self.tline_line_col = 'line'
+        self.tseg_loop_col = 'loop'
+        if self.has_traffic_results:
+            self.link_auto_volume_col = 'auto_volume'
+            self.link_additional_volume_col = 'additional_volume'
+            self.link_total_volume_col = 'traffic_volume'
+            self.link_auto_travel_time_col = 'auto_time'
+            self.traffic_results_cols = \
+                ['auto_volume', 'additional_volume', 'auto_time']
+            self.links[self.link_total_volume_col] = \
+                self.links[self.link_auto_volume_col] \
+                    + self.links[self.link_additional_volume_col]
+        if self.has_transit_results:
+            self.tsegment_boardings_col = 'boardings'
+            self.tsegment_alightings_col = 'alightings'
+            self.tsegments_volume_col = 'volume'
+            self.transit_results_cols  = ['boardings', 'alightings', 'volume']
+
+        # These are used when collapsing a transit hypernetwork
+        self.base_node_col = 'base_node'
+        self.base_fromnode_col = 'base_fromnode'
+        self.base_tonode_col = 'base_tonode'
+        print('  Applying link classifications.')
+        self.apply_link_classification()
+        print('  Calculating link cartesian directions.')
+        self.calculate_link_direction()
+        print('  Assigning to transit operators from transit line ID')
+        self.apply_transit_operator()
+        print('  Applying summary node and zone ranges.')
+        self.apply_node_ranges()
+        self.apply_zone_ranges()
+        print('  Completed reading Emme Network.')
+
+    def apply_zone_ranges(self):
+        if self.zone_range_defs is not None:
+            zone_ranges = []
+            for k, v in self.zone_range_defs.items():
+                zone_ranges.append([k, v['min'], v['max']])
+            self.zone_ranges = sa.create_spatial_aggregator(
+                'custom_ranges', 
+                ranges=zone_ranges,
+                ids=self.nodes.loc[self.nodes[self.node_is_centroid_col]].index,
+                name='zone_ranges'
+            )
+
+    def apply_node_ranges(self) -> None:
+        if self.node_range_defs is not None:
+            node_ranges = []
+            for k, v in self.node_range_defs.items():
+                node_ranges.append([k, v['min'], v['max']])
+            self.node_ranges = sa.create_spatial_aggregator(
+                'custom_ranges', 
+                ranges=node_ranges,
+                ids=self.nodes.index,
+                name='node_ranges'
+            )
 
     def apply_link_classification(self):
         """ 
         Add link classification column, as defined in network coding standard
         to links table. 
         """
-        self.links[self.linkclass] = ''
-        for k, v in self.linkclass_exprs.items():
-            fltr = self.links[v['attr']].isin(v['values'])
-            self.links.loc[fltr, self.linkclass] = k  
+        if self.link_classification_defs is not None:
+            self.linkclass = 'link_class'
+            self.links[self.linkclass] = ''
+            for k, v in self.link_classification_defs.items():
+                fltr = self.links[v['attr']].isin(v['values'])
+                self.links.loc[fltr, self.linkclass] = k  
 
     def calculate_link_direction(self) -> None:
         """ 
@@ -159,15 +251,6 @@ class Network(object):
             lambda x: calc_linestring_orientation(
                 x['geometry'], self.grid_offset, 'cartesian'), axis=1)
 
-    def filter_link_connectors(self):
-        """ Returns copy of links table with connectors removed"""
-        fltr_inode_is_cntrd = self.links.index.get_level_values(
-            'inode').isin(self.zone_ranges().index)
-        fltr_jnode_is_cntrd = self.links.index.get_level_values(
-            'jnode').isin(self.zone_ranges().index)
-        return self.links.loc[
-            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
-
     def apply_transit_operator(self):
         """ 
         Apply the operator regex, defined in the enumeration,to append
@@ -175,13 +258,24 @@ class Network(object):
         """
         tlines_index = self.tlines.index
         tsegments_index = self.tsegments.index.get_level_values(0)
-        self.tlines['operator'] = ''
-        self.tsegments['operator'] = ''
-        for operator, regex_expr in self.transit_operator_regexpr.items():
+        self.tlines[self.toperator] = ''
+        self.tsegments[self.toperator] = ''
+        for operator, regex_expr in self.transit_opererator_regexprs.items():
             fltr = tlines_index.str.match(regex_expr)
-            self.tlines.loc[fltr, 'operator'] = operator
+            self.tlines.loc[fltr, self.toperator] = operator
             fltr = tsegments_index.str.match(regex_expr)
-            self.tsegments.loc[fltr, 'operator'] = operator
+            self.tsegments.loc[fltr, self.toperator] = operator
+
+    def filter_link_connectors(self):
+        """ Returns copy of links table with connectors removed"""
+        fltr_inode_is_cntrd = self.links.index.get_level_values(
+            self.link_fromnode_col).isin(self.zone_ranges().index)
+        fltr_jnode_is_cntrd = self.links.index.get_level_values(
+            self.link_tonode_col).isin(self.zone_ranges().index)
+        return self.links.loc[
+            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
+
+
 
 #region Auto traffic summary methods
     def summarize_link_attributes(
@@ -192,7 +286,7 @@ class Network(object):
             filter_expression: str | None = None,
             congested_threshold: float | None = None,
             node_aggregation: Type[sa.SpatialAggregator] | None = None,
-            aggregate_on_node: str='inode',
+            aggregate_on_node: str | None = None,
             segment_by_linkclass: bool | None = None,
         ):
         """ Calculate vehicle kilometers travelled.
@@ -213,17 +307,19 @@ class Network(object):
                 volume/capacity ratio exceeds this treshold.
             node_aggregation: Optional spatial aggregator. If defined will  
                 segment by region. Default is None.
-            aggregate_on_node: Must be defined if node_aggregation is defined.
-                Used to define if node aggregation is defined using 
-                I-node ('inode')  or J-node ('jnode').  Default is 'inode'
+            aggregate_on_node: Used if node_aggregation is defined.
+                Must either match the from-node or to-node column in the 
+                links table. If not defined, then will be set to the 
+                from-node column in the links table.
             segment_by_linkclass: bool
                 If True, additionally segment VKT by link classification.
         """
+
         # Lookup the expression
         if summary == 'length':
-            expression = self.length
+            expression = self.link_length_col
         elif summary == 'lane_length':
-            expression = f'{self.length} * {self.lanes}'
+            expression = f'{self.link_length_col} * {self.link_numlanes_col}'
         elif summary == 'vkt':
             expression = self.traffic_vkt_expr
         elif summary == 'vht':
@@ -250,8 +346,13 @@ class Network(object):
         # Set cross-tab columns, either by link facility type
         # and/or node aggregation.
         if node_aggregation is not None:
-            if aggregate_on_node not in ['inode', 'jnode']:
-                raise ValueError("Invalid parameter 'aggregate_on_node'.")
+            if aggregate_on_node == None:
+                aggregate_on_node = self.link_fromnode_col
+            elif aggregate_on_node not in [
+                    self.link_fromnode_col, self.link_tonode_col]:
+                raise ValueError(
+                    f"Invalid parameter 'aggregate_on_node'. Must be either "
+                    f"{self.link_fromnode_col} or {self.link_tonode_col}")
             aggr_colname = node_aggregation().name
             crosstab_columns = [aggr_colname]
         else:
@@ -326,28 +427,23 @@ class Network(object):
                     - 'traffic_vol': auto + additional volumes
     
         """
-        linkcap_col = 'link_cap'
         screenlines = screenlines.to_crs(self.links.crs)
 
         # Filter out the connectors
         links = self.filter_link_connectors()
 
         # Remove non-auto-links
-        fltr = links['modes'].str.contains(self.auto_mode)
+        fltr = links[self.link_allowed_modes_col].str.contains(self.automode_id)
         links = links.loc[fltr]
-        # Calculate lane capacity
-        links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
         summary_columns = ['n_links', 'n_lanes', 'capacity']
-        # Set the aggregation dictionary, which will be used in the 
-        # .groupby command
         aggr_dict = {
-            self.lanes: ['count', 'sum'], # of links and number of lanes
-            linkcap_col: 'sum',           # vehicle capacity
+            self.link_numlanes_col: ['count', 'sum'],       
+            self.link_auto_capacity_col: 'sum',
         }
         if self.has_traffic_results:
-            aggr_dict[self.autovol] = 'sum'
-            aggr_dict[self.autoaddvol] = 'sum'
-            aggr_dict[self.trafficvol] = 'sum'
+            aggr_dict[self.link_auto_volume_col] = 'sum'
+            aggr_dict[self.link_additional_volume_col] = 'sum'
+            aggr_dict[self.link_total_volume_col] = 'sum'
             summary_columns.extend([
                 'auto_vol', 'additional_vol', 'traffic_vol'])
 
@@ -385,323 +481,316 @@ class Network(object):
         return pd.concat(screenlines_list, axis=0)
 #endregion
 
-#region Auto validation
-    def prepare_trafficvol_expr(
-            self, vol_to_compare: str, phf: float | None) -> str:
-        """ 
-        Convert vol_to_compare to an expression that can be run in pandas.eval.
+
+# #region Auto validation
+#     def prepare_trafficvol_expr(
+#             self, vol_to_compare: str, phf: float | None) -> str:
+#         """ 
+#         Convert vol_to_compare to an expression that can be run in pandas.eval.
         
-        Args:
-            vol_to_compare: one of 'auto', 'total', or an expression
-                using link attributes.
-            phf: peak-hour factor used by model to convert period to
-                peak-hour demand. If not specified then a peak-hour
-                validation is performed (equivalent to phf = 1.0).
+#         Args:
+#             vol_to_compare: one of 'auto', 'total', or an expression
+#                 using link attributes.
+#             phf: peak-hour factor used by model to convert period to
+#                 peak-hour demand. If not specified then a peak-hour
+#                 validation is performed (equivalent to phf = 1.0).
         
-        """
-        if isinstance(phf, float) or isinstance(phf, int):
-            phf_inv = 1.0 / phf
-        else:
-            phf_inv = 1.0
+#         """
+#         if isinstance(phf, float) or isinstance(phf, int):
+#             phf_inv = 1.0 / phf
+#         else:
+#             phf_inv = 1.0
         
-        if vol_to_compare == 'total':
-            compare_expr = self.trafficvol
-        elif vol_to_compare == 'auto':
-            compare_expr = self.autovol
-        else:
-            compare_expr = vol_to_compare
-        return f'({compare_expr}) * {phf_inv}'
+#         if vol_to_compare == 'total':
+#             compare_expr = self.trafficvol
+#         elif vol_to_compare == 'auto':
+#             compare_expr = self.autovol
+#         else:
+#             compare_expr = vol_to_compare
+#         return f'({compare_expr}) * {phf_inv}'
 
-    def match_links_to_auto_count_stations(
-            self, stns: gpd.GeoDataFrame) -> None:
-        """ Modifies network links table by adding count stations.
+#     def match_links_to_auto_count_stations(
+#             self, stns: gpd.GeoDataFrame) -> None:
+#         """ Modifies network links table by adding count stations.
 
-        Args:
-            stns: GeoPandas.GeoDataFrame
-                Count stations
+#         Args:
+#             stns: GeoPandas.GeoDataFrame
+#                 Count stations
 
-        """
-        PT_MAXSPACING = 50
-        BUFFER = 60   # metres
-        N_PTS_COL = 'n_pts'
-        N_INTSC_COL = 'n_intsc_pts'
-        PR_INTSC_COL = 'prop_intsc'
-        GEOM_COL = 'geometry'
-        MAX_ORIENTATION_DELTA = 30
+#         """
+#         PT_MAXSPACING = 50
+#         BUFFER = 60   # metres
+#         N_PTS_COL = 'n_pts'
+#         N_INTSC_COL = 'n_intsc_pts'
+#         PR_INTSC_COL = 'prop_intsc'
+#         GEOM_COL = 'geometry'
+#         MAX_ORIENTATION_DELTA = 30
         
-        # Add fields to the links table to hold the match station
-        self.links[en_traffic.SOURCE] = ''
-        self.links[en_traffic.STN_ID] = ''
-        self.links[en_traffic.DIR] = ''
+#         # Add fields to the links table to hold the match station
+#         self.links[en_traffic.SOURCE] = ''
+#         self.links[en_traffic.STN_ID] = ''
+#         self.links[en_traffic.DIR] = ''
         
-        # Limit to candidate links by using a sideways-only buffer
-        # Create a table of links and candidate count stations
-        fltr_hasautomode = self.links[
-            self.modes].str.contains(self.auto_mode)
-        fltr_not_connector = \
-            (self.links.index.get_level_values(0) >= self.min_regnode_id) & \
-            (self.links.index.get_level_values(1) >= self.min_regnode_id)
-        road_links = self.links.loc[fltr_hasautomode & fltr_not_connector]
-        stns2 = stns.to_crs(self.crs)
-        stns_buffer_geom = stns2.geometry.buffer(BUFFER, cap_style='flat')
-        stns_buffer = gpd.GeoDataFrame(stns2, geometry=stns_buffer_geom)
-        candidate_matches = stns_buffer.sjoin(road_links, how='inner')
-        candidate_matches = candidate_matches.rename({
-            'index_right0': 'i', 'index_right1': 'j'}, axis=1)
-        candidate_matches = candidate_matches[['i', 'j']].merge(
-            road_links[[GEOM_COL]], left_on=['i', 'j'],right_index=True)
-        candidate_matches = gpd.GeoDataFrame(
-            candidate_matches, geometry=candidate_matches[GEOM_COL])
-        candidate_match_stns = candidate_matches.index.unique()
-        candidate_matches = candidate_matches.reset_index()
-        candidate_matches = candidate_matches.set_index(
-            [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR, 'i', 'j'])
-        candidate_matches = candidate_matches.sort_index()
+#         # Limit to candidate links by using a sideways-only buffer
+#         # Create a table of links and candidate count stations
+#         fltr_hasautomode = self.links[
+#             self.modes].str.contains(self.auto_mode)
+#         fltr_not_connector = \
+#             (self.links.index.get_level_values(0) >= self.min_regnode_id) & \
+#             (self.links.index.get_level_values(1) >= self.min_regnode_id)
+#         road_links = self.links.loc[fltr_hasautomode & fltr_not_connector]
+#         stns2 = stns.to_crs(self.crs)
+#         stns_buffer_geom = stns2.geometry.buffer(BUFFER, cap_style='flat')
+#         stns_buffer = gpd.GeoDataFrame(stns2, geometry=stns_buffer_geom)
+#         candidate_matches = stns_buffer.sjoin(road_links, how='inner')
+#         candidate_matches = candidate_matches.rename({
+#             'index_right0': 'i', 'index_right1': 'j'}, axis=1)
+#         candidate_matches = candidate_matches[['i', 'j']].merge(
+#             road_links[[GEOM_COL]], left_on=['i', 'j'],right_index=True)
+#         candidate_matches = gpd.GeoDataFrame(
+#             candidate_matches, geometry=candidate_matches[GEOM_COL])
+#         candidate_match_stns = candidate_matches.index.unique()
+#         candidate_matches = candidate_matches.reset_index()
+#         candidate_matches = candidate_matches.set_index(
+#             [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR, 'i', 'j'])
+#         candidate_matches = candidate_matches.sort_index()
         
-        for cmstn in candidate_match_stns:
-            # Get a buffer around the station
-            stn_geom = stns2.at[cmstn, GEOM_COL]
-            stn_buffer = stn_geom.buffer(BUFFER, cap_style='flat')
+#         for cmstn in candidate_match_stns:
+#             # Get a buffer around the station
+#             stn_geom = stns2.at[cmstn, GEOM_COL]
+#             stn_buffer = stn_geom.buffer(BUFFER, cap_style='flat')
 
-            # Search for points along each link that lie within buffer
-            subset = candidate_matches.loc[idx[cmstn]].copy()
-            subset[N_PTS_COL] = 0
-            subset[N_INTSC_COL] = 0
-            for sbt_i, sbt in subset.iterrows():
-                vx, vy = sbt.geometry.segmentize(PT_MAXSPACING).xy
-                seg_pts = gpd.points_from_xy(vx, vy)
-                subset.at[sbt_i, N_PTS_COL] = len(seg_pts)
-                subset.at[sbt_i, N_INTSC_COL] = seg_pts.intersects(
-                    stn_buffer).sum()
-            if subset[N_INTSC_COL].max() == 0:
-                # No intersections found -- move on
-                continue
-            subset[PR_INTSC_COL] = subset[N_INTSC_COL] / subset[N_PTS_COL]
-            max_prop_intsc = subset[PR_INTSC_COL].max()
-            fltr_subset_max = (subset[PR_INTSC_COL] == max_prop_intsc)
-            # Find the first entry with the same orientation
-            stn_angle = calc_linestring_orientation(stn_geom, 0, 'angle')
-            for sbt_i, sbt in subset.loc[fltr_subset_max].iterrows():
-                lk_angle = calc_linestring_orientation(sbt.geometry, 0, 'angle')
-                if fabs(lk_angle - stn_angle) < MAX_ORIENTATION_DELTA:
-                    self.links.loc[
-                        sbt_i, idx[en_traffic.SOURCE, en_traffic.STN_ID, 
-                                   en_traffic.DIR]
-                        ] = cmstn
-                    break
+#             # Search for points along each link that lie within buffer
+#             subset = candidate_matches.loc[idx[cmstn]].copy()
+#             subset[N_PTS_COL] = 0
+#             subset[N_INTSC_COL] = 0
+#             for sbt_i, sbt in subset.iterrows():
+#                 vx, vy = sbt.geometry.segmentize(PT_MAXSPACING).xy
+#                 seg_pts = gpd.points_from_xy(vx, vy)
+#                 subset.at[sbt_i, N_PTS_COL] = len(seg_pts)
+#                 subset.at[sbt_i, N_INTSC_COL] = seg_pts.intersects(
+#                     stn_buffer).sum()
+#             if subset[N_INTSC_COL].max() == 0:
+#                 # No intersections found -- move on
+#                 continue
+#             subset[PR_INTSC_COL] = subset[N_INTSC_COL] / subset[N_PTS_COL]
+#             max_prop_intsc = subset[PR_INTSC_COL].max()
+#             fltr_subset_max = (subset[PR_INTSC_COL] == max_prop_intsc)
+#             # Find the first entry with the same orientation
+#             stn_angle = calc_linestring_orientation(stn_geom, 0, 'angle')
+#             for sbt_i, sbt in subset.loc[fltr_subset_max].iterrows():
+#                 lk_angle = calc_linestring_orientation(sbt.geometry, 0, 'angle')
+#                 if fabs(lk_angle - stn_angle) < MAX_ORIENTATION_DELTA:
+#                     self.links.loc[
+#                         sbt_i, idx[en_traffic.SOURCE, en_traffic.STN_ID, 
+#                                    en_traffic.DIR]
+#                         ] = cmstn
+#                     break
 
-    def save_link_auto_cntstation_mappings(self, fp: PathLike) -> None:
-        """ Output link mappings to csv file. 
+#     def save_link_auto_cntstation_mappings(self, fp: PathLike) -> None:
+#         """ Output link mappings to csv file. 
         
-        Args:
-            fp: File in which to save link mappings
-        """
-        fltr = self.links['source'] != ''
-        self.links.loc[
-                fltr, 
-                [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR]
-            ].to_csv(fp)
+#         Args:
+#             fp: File in which to save link mappings
+#         """
+#         fltr = self.links['source'] != ''
+#         self.links.loc[
+#                 fltr, 
+#                 [en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR]
+#             ].to_csv(fp)
 
-    def read_and_apply_link_auto_cntstation_mappings(
-            self, fp: PathLike) -> None:
-        """ 
-        Read previously calculated link mappings from a file and apply to links.
+#     def read_and_apply_link_auto_cntstation_mappings(
+#             self, fp: PathLike) -> None:
+#         """ 
+#         Read previously calculated link mappings from a file and apply to links.
 
-        Args:
-            fp: File from which to read link mappings
-        """
-        mappings = pd.read_csv(
-            fp, index_col=self.links.index.names, dtype=str, na_values='')
-        stn_mapping_cols = [en_traffic.SOURCE, en_traffic.STN_ID, 
-                            en_traffic.DIR]
-        for col in stn_mapping_cols:
-            if col in self.links.columns:
-                raise RuntimeError(
-                    f'Cannot have {stn_mapping_cols} columns in links table '
-                    f'before merging in count station mapping.'
-                )
-        self.links = self.links.merge(
-            mappings, how='left', left_index=True, right_index=True)
-        self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
+#         Args:
+#             fp: File from which to read link mappings
+#         """
+#         mappings = pd.read_csv(
+#             fp, index_col=self.links.index.names, dtype=str, na_values='')
+#         stn_mapping_cols = [en_traffic.SOURCE, en_traffic.STN_ID, 
+#                             en_traffic.DIR]
+#         for col in stn_mapping_cols:
+#             if col in self.links.columns:
+#                 raise RuntimeError(
+#                     f'Cannot have {stn_mapping_cols} columns in links table '
+#                     f'before merging in count station mapping.'
+#                 )
+#         self.links = self.links.merge(
+#             mappings, how='left', left_index=True, right_index=True)
+#         self.links[stn_mapping_cols] = self.links[stn_mapping_cols].fillna('')
 
-    def prepare_link_validation_table(
-            self, 
-            counts: pd.Series, 
-            vol_to_compare: str,
-            phf: float | None = None, 
-        ) -> pd.DataFrame:
-        """ Prepare a table comparing link volumes vs period traffic counts.
+#     def prepare_link_validation_table(
+#             self, 
+#             counts: pd.Series, 
+#             vol_to_compare: str,
+#             phf: float | None = None, 
+#         ) -> pd.DataFrame:
+#         """ Prepare a table comparing link volumes vs period traffic counts.
 
-        Links must be matched to count stations before running this method.
+#         Links must be matched to count stations before running this method.
 
-        Args:
-            counts: pd.Series containing traffic counts against which,
-                the modelled volumes are to be compared. 
-            vol_to_compare: one of 'auto', 'total', or an expression
-                using link attributes.
-            phf: peak-hour factor used by model to convert period to
-                peak-hour demand. If not specified then a peak-hour
-                validation is performed (equivalent to phf = 1.0).
+#         Args:
+#             counts: pd.Series containing traffic counts against which,
+#                 the modelled volumes are to be compared. 
+#             vol_to_compare: one of 'auto', 'total', or an expression
+#                 using link attributes.
+#             phf: peak-hour factor used by model to convert period to
+#                 peak-hour demand. If not specified then a peak-hour
+#                 validation is performed (equivalent to phf = 1.0).
                 
-        Returns:
-            links pandas DataFrame with the following columns:
-                - link class
-                - traffic count source
-                - traffic count direction
-                - count volume in column 'count_vol'
-                - model volume in column 'model_vol'
+#         Returns:
+#             links pandas DataFrame with the following columns:
+#                 - link class
+#                 - traffic count source
+#                 - traffic count direction
+#                 - count volume in column 'count_vol'
+#                 - model volume in column 'model_vol'
 
-        """
-        modelvol_attr = 'model_vol'
-        vdtnvol_attr = 'count_vol'
-        compare_expr = self.prepare_trafficvol_expr(vol_to_compare, phf)
+#         """
+#         modelvol_attr = 'model_vol'
+#         vdtnvol_attr = 'count_vol'
+#         compare_expr = self.prepare_trafficvol_expr(vol_to_compare, phf)
             
-        links = self.links.copy()
-        # Calculate modelled volume
-        links[modelvol_attr] = links.eval(compare_expr)  
-        # Merge in count volume
-        counts = counts.copy()
-        counts.name = vdtnvol_attr
-        links = links.merge(
-            counts,
-            left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
-            right_index=True
-        )
-        return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
-                    modelvol_attr, vdtnvol_attr]]
+#         links = self.links.copy()
+#         # Calculate modelled volume
+#         links[modelvol_attr] = links.eval(compare_expr)  
+#         # Merge in count volume
+#         counts = counts.copy()
+#         counts.name = vdtnvol_attr
+#         links = links.merge(
+#             counts,
+#             left_on=[en_traffic.SOURCE, en_traffic.STN_ID, en_traffic.DIR],
+#             right_index=True
+#         )
+#         return links[[self.linkclass, en_traffic.SOURCE, en_traffic.DIR, 
+#                     modelvol_attr, vdtnvol_attr]]
 
-    def validate_traffic_across_screenlines(
-            self,
-            screenlines: gpd.GeoSeries,
-            comparisons: Dict,
-        ) -> pd.DataFrame:
-        """ Summarize traffic volumes and capacity across screenlines:
+#     def validate_traffic_across_screenlines(
+#             self,
+#             screenlines: gpd.GeoSeries,
+#             comparisons: Dict,
+#         ) -> pd.DataFrame:
+#         """ Summarize traffic volumes and capacity across screenlines:
     
-        Args:
-            screenlines: gpd.GeoSeries with one row per screenline.
-                Index is considered as the screenline name while
-                the geometry defines the screenline.
-            comparisons: Dict
-                - key is the comparison name
-                - the value is another dictionary defined as follows:
-                    model_volumes: str 
-                        Can be one of:
-                        - 'auto': auto volumes only
-                        - 'total': total volumnes, or 
-                        - an expression using link attributes.
-                    counts: pd.Series
-                        Traffic counts against which, the modelled volumes 
-                        are to be compared.
-                    phf: float | None
-                        peak-hour factor used by model to convert period to
-                        peak-hour demand. If not specified then a peak-hour
-                        validation is performed (equivalent to phf = 1.0).
-        Returns:
-            pd.DataFrame
-                Outputs one row per combination of screenline and direction
-                that contains the following:
-                - n_links: number of links in direction
-                - n_lanes: total number of lanes crossing screenline
-                - capacity: total link capacity crossing screenline
-                - modelled_vol: modelled volume on all links
-                - n_obsv_links: number of links with counts
-                - n_obsv_lanes: number of lanes on links with counts
-                - link_porosity: proportion of observed links
-                - lane_porosity: proportion of observed lanes
-                - capacity_porosity: proportion of observed link capacity
-                - count: traffic counts on observed links
-                - obsv_modelled_vol: modelled volume on observed links
+#         Args:
+#             screenlines: gpd.GeoSeries with one row per screenline.
+#                 Index is considered as the screenline name while
+#                 the geometry defines the screenline.
+#             comparisons: Dict
+#                 - key is the comparison name
+#                 - the value is another dictionary defined as follows:
+#                     model_volumes: str 
+#                         Can be one of:
+#                         - 'auto': auto volumes only
+#                         - 'total': total volumnes, or 
+#                         - an expression using link attributes.
+#                     counts: pd.Series
+#                         Traffic counts against which, the modelled volumes 
+#                         are to be compared.
+#                     phf: float | None
+#                         peak-hour factor used by model to convert period to
+#                         peak-hour demand. If not specified then a peak-hour
+#                         validation is performed (equivalent to phf = 1.0).
+#         Returns:
+#             pd.DataFrame
+#                 Outputs one row per combination of screenline and direction
+#                 that contains the following:
+#                 - n_links: number of links in direction
+#                 - n_lanes: total number of lanes crossing screenline
+#                 - capacity: total link capacity crossing screenline
+#                 - modelled_vol: modelled volume on all links
+#                 - n_obsv_links: number of links with counts
+#                 - n_obsv_lanes: number of lanes on links with counts
+#                 - link_porosity: proportion of observed links
+#                 - lane_porosity: proportion of observed lanes
+#                 - capacity_porosity: proportion of observed link capacity
+#                 - count: traffic counts on observed links
+#                 - obsv_modelled_vol: modelled volume on observed links
 
     
-        """
-        linkcap_col = 'link_cap'
-        is_cntstn_col = 'is_cnt_stn'
-        model_vol_col = 'model_vol'
-        screenlines = screenlines.to_crs(self.links.crs)
-        for k_cmp, v_cmp in comparisons.items():
-            if 'phf' not in v_cmp.keys():
-                comparisons[k_cmp]['phf'] = None
+#         """
+#         linkcap_col = 'link_cap'
+#         is_cntstn_col = 'is_cnt_stn'
+#         model_vol_col = 'model_vol'
+#         screenlines = screenlines.to_crs(self.links.crs)
+#         for k_cmp, v_cmp in comparisons.items():
+#             if 'phf' not in v_cmp.keys():
+#                 comparisons[k_cmp]['phf'] = None
 
-        # Prepare links table
-        links = self.links
-        links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
-        links[is_cntstn_col] = 0
-        links.loc[links[en_traffic.SOURCE] != '', is_cntstn_col] = 1
-        fltr_inode_is_cntrd = \
-            links.index.get_level_values('inode') < self.min_regnode_id
-        fltr_jnode_is_cntrd = \
-            links.index.get_level_values('jnode') < self.min_regnode_id
-        links = links.loc[(~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)]
-        results_list = []
-        for scrn_idx, scrn_row in screenlines.iterrows():
-            if 'index_right' in links.columns:
-                links = links.drop('index_right', axis=1)
-            screenline_gdf = gpd.GeoDataFrame(
-                geometry=[scrn_row.geometry],
-                index=[scrn_idx],
-                crs=screenlines.crs
-            )
-            links2 = links.sjoin(screenline_gdf)
+#         # Prepare links table
+#         links = self.links
+#         links[linkcap_col] = links.eval(f'{self.lanes} * {self.lanecap}')
+#         links[is_cntstn_col] = 0
+#         links.loc[links[en_traffic.SOURCE] != '', is_cntstn_col] = 1
+#         fltr_inode_is_cntrd = \
+#             links.index.get_level_values('inode') < self.min_regnode_id
+#         fltr_jnode_is_cntrd = \
+#             links.index.get_level_values('jnode') < self.min_regnode_id
+#         links = links.loc[(~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)]
+#         results_list = []
+#         for scrn_idx, scrn_row in screenlines.iterrows():
+#             if 'index_right' in links.columns:
+#                 links = links.drop('index_right', axis=1)
+#             screenline_gdf = gpd.GeoDataFrame(
+#                 geometry=[scrn_row.geometry],
+#                 index=[scrn_idx],
+#                 crs=screenlines.crs
+#             )
+#             links2 = links.sjoin(screenline_gdf)
 
-            for k_cmp, v_cmp in comparisons.items():
-                counts_col = f'{k_cmp}_counts'
-                modelvol_eval_str = self.prepare_trafficvol_expr(
-                    v_cmp['model_volumes'], v_cmp['phf'])
-                links2[model_vol_col] = links2.eval(modelvol_eval_str)
-                # Merge in the counts
-                counts = v_cmp['counts']
+#             for k_cmp, v_cmp in comparisons.items():
+#                 counts_col = f'{k_cmp}_counts'
+#                 modelvol_eval_str = self.prepare_trafficvol_expr(
+#                     v_cmp['model_volumes'], v_cmp['phf'])
+#                 links2[model_vol_col] = links2.eval(modelvol_eval_str)
+#                 # Merge in the counts
+#                 counts = v_cmp['counts']
                 
-                counts.name = counts_col
-                links2 = links2.merge(
-                    v_cmp['counts'], how='left', 
-                    left_on=en_traffic.STN_INDEX_COLS, right_index=True,
-                )
-                all = links2.groupby(self.link_dir_col).agg({
-                    self.lanes: ['count', 'sum'], 
-                    linkcap_col: 'sum',
-                    model_vol_col: 'sum'
-                })
-                all.columns = ['n_links', 'n_lanes', 'capacity', 'modelled_vol']
+#                 counts.name = counts_col
+#                 links2 = links2.merge(
+#                     v_cmp['counts'], how='left', 
+#                     left_on=en_traffic.STN_INDEX_COLS, right_index=True,
+#                 )
+#                 all = links2.groupby(self.link_dir_col).agg({
+#                     self.lanes: ['count', 'sum'], 
+#                     linkcap_col: 'sum',
+#                     model_vol_col: 'sum'
+#                 })
+#                 all.columns = ['n_links', 'n_lanes', 'capacity', 'modelled_vol']
                 
-                obsv_fltr = links2[en_traffic.SOURCE] != ''
-                links_obsv = links2.loc[obsv_fltr]
-                obsvd = links_obsv.groupby(self.link_dir_col).agg({
-                    self.lanes: ['count', 'sum'], 
-                    linkcap_col: 'sum',
-                    counts_col: 'sum', 
-                    model_vol_col: 'sum'
-                })
-                obsvd.columns = ['n_obsv_links', 'n_obsv_lanes', 'obsv_linkcap', 
-                                 'count', 'obsv_modelled_vol']
-                combined = pd.concat([all, obsvd], axis=1)
-                combined['link_porosity'] = \
-                    combined['n_obsv_links'] / combined['n_links']
-                combined['lane_porosity'] = \
-                    combined['n_obsv_lanes'] / combined['n_lanes']
-                combined['capacity_porosity'] = \
-                    combined['obsv_linkcap'] / combined['capacity']
-                combined = combined.reset_index()
-                combined['screenline'] = scrn_idx
-                combined['comparison'] = k_cmp
-                combined = combined.set_index(
-                    ['screenline', 'link_dir', 'comparison']).fillna(0)
-                results_list.append(combined)
+#                 obsv_fltr = links2[en_traffic.SOURCE] != ''
+#                 links_obsv = links2.loc[obsv_fltr]
+#                 obsvd = links_obsv.groupby(self.link_dir_col).agg({
+#                     self.lanes: ['count', 'sum'], 
+#                     linkcap_col: 'sum',
+#                     counts_col: 'sum', 
+#                     model_vol_col: 'sum'
+#                 })
+#                 obsvd.columns = ['n_obsv_links', 'n_obsv_lanes', 'obsv_linkcap', 
+#                                  'count', 'obsv_modelled_vol']
+#                 combined = pd.concat([all, obsvd], axis=1)
+#                 combined['link_porosity'] = \
+#                     combined['n_obsv_links'] / combined['n_links']
+#                 combined['lane_porosity'] = \
+#                     combined['n_obsv_lanes'] / combined['n_lanes']
+#                 combined['capacity_porosity'] = \
+#                     combined['obsv_linkcap'] / combined['capacity']
+#                 combined = combined.reset_index()
+#                 combined['screenline'] = scrn_idx
+#                 combined['comparison'] = k_cmp
+#                 combined = combined.set_index(
+#                     ['screenline', 'link_dir', 'comparison']).fillna(0)
+#                 results_list.append(combined)
                 
-        return pd.concat(results_list, axis=0)
+#         return pd.concat(results_list, axis=0)
 
-    @staticmethod
-    def _test_attrs_in_expression(expr: str | None, attributes: List):
-        """ Check if attributes are in an expression. """
-        if expr is None:
-            return False
-        for attr in attributes:
-            if attr in expr:
-                return True
-        return False
-#endregion
+
+# #endregion
+
+
 #region Transit
-
-
     def calc_line_profile(
             self, tline_ids: str|List[str], 
             stn_labels: pd.Series | Dict | None=None
@@ -733,7 +822,7 @@ class Network(object):
                 new, how=merge_type, left_index=True, 
                 right_index=True, suffixes=suffixes
             ).fillna(0)
-            for col in self.transit_results:
+            for col in self.transit_results_cols:
                 df[col] = df[col + suffixes[0]] + df[col + suffixes[1]]
                 df = df.drop([col + suffixes[0], col + suffixes[1]], axis=1)
             return df
@@ -783,11 +872,11 @@ class Network(object):
         final = current
         if isinstance(stn_labels, pd.Series) or isinstance(stn_labels, dict):
             final = final.reset_index()
-            final['stn'] = final['inode'].map(stn_labels)
+            final['stn'] = final[self.link_fromnode_col].map(stn_labels)
             fltr = pd.isna(final['stn'])
-            final.loc[fltr, 'stn'] = final.loc[fltr, 'inode']
-            final = final.set_index(['stn', 'loop'])
-            final = final.drop('inode', axis=1)
+            final.loc[fltr, 'stn'] = final.loc[fltr, self.link_fromnode_col]
+            final = final.set_index(['stn', self.tseg_loop_col])
+            final = final.drop(self.link_fromnode_col, axis=1)
         return final
 
     def calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
@@ -799,13 +888,13 @@ class Network(object):
             print(f'Transit line {tline_id} does not exist, returning None.')
             return None
         tsegs = self.tsegments.loc[
-            idx[tline_id, :, :, :, :], self.transit_results]
+            idx[tline_id, :, :, :, :], self.transit_results_cols]
         # add the hidden segment
         # all passengers onboard at the end on train must alight
         last_tseg = tsegs.iloc[-1]
         tsegs.loc[tline_id, last_tseg.name[2], 0, last_tseg.name[3]] = [
-            0, last_tseg['volume'], 0]
-        tsegs = tsegs.reset_index(['line', 'jnode'], drop=True)
+            0, last_tseg[self.tsegments_volume_col], 0]
+        tsegs = tsegs.reset_index([self.tline_line_col, self.link_tonode_col], drop=True)
         return tsegs
 
     def summarize_transit_segments(
@@ -850,9 +939,9 @@ class Network(object):
         # Test if transit line, transit vehicle or link attributes are 
         # defined in either the expression or the filter
         reqs_transit_results = test_attrs_in_expr_or_filter(
-            expression, filter_expression, self.transit_results)
+            expression, filter_expression, self.transit_results_cols)
         reqs_traffic_results = test_attrs_in_expr_or_filter(
-            expression, filter_expression, self.traffic_results)
+            expression, filter_expression, self.transit_results_cols)
         reqs_links_columns = test_attrs_in_expr_or_filter(
             expression, filter_expression, self.links.columns)
         reqs_tlines_columns = test_attrs_in_expr_or_filter(
@@ -875,15 +964,17 @@ class Network(object):
         tsegs = self.tsegments.reset_index()
         if reqs_links_columns:
             tsegs = tsegs.merge(
-                self.links, left_on=['inode', 'jnode'], right_index=True)
+                self.links, 
+                left_on=[self.link_fromnode_col, self.link_tonode_col], 
+                right_index=True
+            )
         if reqs_tlines_columns or reqs_tvehs_columns:
-            # Transit vehicles are defined in the 'veh' transit line field
             tsegs = tsegs.merge(
-                self.tlines, left_on=['line'], 
+                self.tlines, left_on=[self.tline_line_col], 
                 right_index=True, suffixes=['', '_l'])
             if reqs_tvehs_columns:
                 tsegs = tsegs.merge(
-                    self.tvehicles, left_on=['veh'], 
+                    self.tvehicles, left_on=[self.tvehs_veh_col], 
                     right_index=True, suffixes=['', '_v'])
                 
         # Apply filter if defined
@@ -965,6 +1056,14 @@ class Network(object):
             we can leave unchanged.
         
         """
+        fromnode_col = self.link_fromnode_col
+        tonode_col = self.link_tonode_col
+        base_fromnode_col = self.base_fromnode_col
+        base_tonode_col = self.base_tonode_col
+        nodeid_col = self.nodeid_col
+        base_node_col = self.base_node_col
+
+
         agrls = self._create_aggregation_dictionary(aggregation_rules)
         new_network = deepcopy(self)
         if not self.is_hypernetwork:
@@ -975,13 +1074,13 @@ class Network(object):
         links = self._merge_link_basenodes()
         
         # Create node mapping from the working links table
-        inode_mapping = links[['inode', 'base_inode']]
-        inode_mapping .columns = ['node', 'base_node']
-        jnode_mapping = links[['jnode', 'base_jnode']]
-        jnode_mapping .columns = ['node', 'base_node']
+        inode_mapping = links[[fromnode_col, base_fromnode_col]]
+        inode_mapping .columns = [nodeid_col, base_node_col]
+        jnode_mapping = links[[tonode_col, base_tonode_col]]
+        jnode_mapping .columns = [nodeid_col, base_node_col]
         node_mappings = pd.concat([inode_mapping, jnode_mapping], axis=0)
         node_mappings = node_mappings.drop_duplicates().set_index(
-            'node').squeeze().sort_index()
+            nodeid_col).squeeze().sort_index()
         
         # Use working links and node mappings to produce collapsed network
         new_network.links = self._collapse_links(links, agrls['links'])
@@ -1016,15 +1115,15 @@ class Network(object):
             agg_rules['nodes'], self.nodes.columns, [])
         agg_rules['links'] = self._add_default_aggr_dict_cols(
             agg_rules['links'], self.links.columns, [
-                'auto_volume', 'additional_volume'])
+                self.link_auto_volume_col, self.link_additional_volume_col])
         return agg_rules
 
     def _collapse_links(
             self, links: pd.DataFrame, agrls: Dict) -> pd.DataFrame:
         """ Produces collapsed link table.  """
-        fltr = links['base_inode'] != links['base_jnode']
+        fltr = links[self.base_fromnode_col] != links[self.base_tonode_col]
         links2 = links.loc[fltr].groupby(
-            ['base_inode', 'base_jnode']).aggregate(agrls)
+            [self.base_fromnode_col, self.base_tonode_col]).aggregate(agrls)
         links2.index.names = self.links.index.names
         return links2
     
@@ -1032,7 +1131,7 @@ class Network(object):
             self, node_mappings: pd.Series, agrls: Dict) -> pd.DataFrame:
         """ Produces collapsed node table. """
         nodes = self.nodes.reset_index()
-        nodes['new_node'] = nodes['node'].map(node_mappings)
+        nodes['new_node'] = nodes[self.nodeid_col].map(node_mappings)
         nodes2 = nodes.groupby('new_node').aggregate(agrls)
         nodes2.index.name = self.nodes.index.name
         return nodes2
@@ -1045,8 +1144,10 @@ class Network(object):
         
         """
         tsegments = self.tsegments.reset_index()
-        tsegments['inode'] = tsegments['inode'].map(node_mappings)
-        tsegments['jnode'] = tsegments['jnode'].map(node_mappings)
+        tsegments[self.link_fromnode_col] = \
+            tsegments[self.link_fromnode_col].map(node_mappings)
+        tsegments[self.link_tonode_col] = \
+            tsegments[self.link_tonode_col].map(node_mappings)
         tsegments = tsegments.set_index(self.tsegments.index.names)
         return tsegments
 
@@ -1064,13 +1165,19 @@ class Network(object):
         # for all non-hyper-network links.
 
         # Merge x and y coordinates to all links in the network
+        fromnode_col = self.link_fromnode_col
+        tonode_col = self.link_tonode_col
+        base_fromnode_col = self.base_fromnode_col
+        base_tonode_col = self.base_tonode_col
+        nodeid_col = self.nodeid_col
+
         links = self.links.reset_index()   
         n_links_before_merge = len(links)
         links = links.merge(
-            self.nodes[['x', 'y']], left_on='inode', right_index=True)
+            self.nodes[['x', 'y']], left_on=fromnode_col, right_index=True)
         links = links.merge(
             self.nodes[['x', 'y']], 
-            left_on='jnode', 
+            left_on=tonode_col, 
             right_index=True, 
             suffixes=['_i', '_j']
         )
@@ -1082,13 +1189,13 @@ class Network(object):
         non_hypntwk_nodes = self.node_ranges().loc[fltr]
         non_hypntwk_nodes = self.nodes.loc[non_hypntwk_nodes.index].index
         base_links = links.loc[
-            (links['inode'].isin(non_hypntwk_nodes)) & 
-            (links['jnode'].isin(non_hypntwk_nodes))
+            (links[fromnode_col].isin(non_hypntwk_nodes)) & 
+            (links[tonode_col].isin(non_hypntwk_nodes))
         ]
         # Groupby X and Y coordinates
         base_links = base_links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])[
-            ['inode', 'jnode']].first()
-        base_links.columns = ['base_inode', 'base_jnode']
+            [fromnode_col, tonode_col]].first()
+        base_links.columns = [base_fromnode_col, base_tonode_col]
 
         # Now merge in the base link to the links hyper-network
         # Doing a left merge to keep all links. 
@@ -1106,7 +1213,7 @@ class Network(object):
         
         # Deal with the base-to-hyper-network transfer links
         fltr_tlinks = \
-            pd.isna(links['base_inode']) | pd.isna(links['base_jnode'])
+            pd.isna(links[base_fromnode_col]) | pd.isna(links[base_tonode_col])
         if np.any(
                 (links.loc[fltr_tlinks, 'x_i'] != links.loc[fltr_tlinks, 'x_j']) | 
                 (links.loc[fltr_tlinks, 'y_i'] != links.loc[fltr_tlinks, 'y_j'])
@@ -1118,98 +1225,66 @@ class Network(object):
         # 3+ layers in the hypernetwork, then there are links where neither
         # their I or J nodes are in the network
         # Make sure that we have all transfer nodes by including I and J nodes
-        inodes = links[['inode', 'x_i', 'y_i']]
-        inodes.columns = ['node_id', 'x', 'y']
-        jnodes = links[['jnode', 'x_j', 'y_j']]
-        jnodes.columns = ['node_id', 'x', 'y']
+        inodes = links[[fromnode_col, 'x_i', 'y_i']]
+        inodes.columns = [nodeid_col, 'x', 'y']
+        jnodes = links[[tonode_col, 'x_j', 'y_j']]
+        jnodes.columns = [nodeid_col, 'x', 'y']
         tnodes = pd.concat([inodes, jnodes], axis=0)
         tnodes = tnodes.drop_duplicates()
-        tnodes = tnodes.sort_values('node_id')
+        tnodes = tnodes.sort_values(nodeid_col)
         # Identify base-network nodes
-        base_tnodes = tnodes.loc[tnodes['node_id'].isin(non_hypntwk_nodes)]
+        base_tnodes = tnodes.loc[tnodes[nodeid_col].isin(non_hypntwk_nodes)]
         # Merge in the base transfer node by X and Y location
         tnodes2 = tnodes.merge(
             base_tnodes, how='left', on=['x', 'y'], suffixes=['', '_b'])
         tnodes2 = tnodes2.drop(['x', 'y'], axis=1).set_index(
-            'node_id').squeeze()
+            nodeid_col).squeeze()
         # Use a mapping to apply the base node (easier than a merge)
-        links.loc[fltr_tlinks, 'base_inode'] = links.loc[
-            fltr_tlinks, 'inode'].map(tnodes2)
-        links.loc[fltr_tlinks, 'base_jnode'] = links.loc[
-            fltr_tlinks, 'jnode'].map(tnodes2)
+        links.loc[fltr_tlinks, base_fromnode_col] = links.loc[
+            fltr_tlinks, fromnode_col].map(tnodes2)
+        links.loc[fltr_tlinks, base_tonode_col] = links.loc[
+            fltr_tlinks, tonode_col].map(tnodes2)
 
         # Now clean up the links table for all links
         links = links.drop(['x_i', 'y_i', 'x_j', 'y_j'], axis=1)
-        links['base_inode'] = links['base_inode'].astype(np.uint32)
-        links['base_jnode'] = links['base_jnode'].astype(np.uint32)
+        links[base_fromnode_col] = links[base_fromnode_col].astype(np.uint32)
+        links[base_tonode_col] = links[base_tonode_col].astype(np.uint32)
         return links
     
 #endregion
 
-
-#region Export to NWP
-    # def to_nwp(self, fp: PathLike, header_comment_lines: List | None = None
-    #     ) -> None:
-    #     """ Export package to Emme-based NWP format. 
-        
-    #     Args:
-    #         fp: PathLike
-    #             Filepath of exported .NWP file
-    #         header_comment_lines:
-    #             A list of comments to be added as headers to all 
-    #             Emme transactation files. Max 78 characters per entry.
-            
-    #     """
-        
-    #     # Find the Windows temp directory, clear if it already exists
-    #     temp_dir = Path(environ['TMP']) / 'GTAModel_Tools'
-    #     if temp_dir.exists():
-    #         rmtree(temp_dir)
-    #     temp_dir.mkdir()
-        
-    #     self._write_base_network(temp_dir / 'base.211', header_comment_lines)
-    #     pass
-
-    # def _prepare_node_base_output(node: pd.Series):
-    #     pass
-
-    # def _write_base_network(
-    #     self, fp: PathLike, header_comment_lines: List | None = None) -> None:
-    #     with open(fp, 'w') as f:
-    #         f.write('c Emme Modeller - Base Network Transaction')
-    #         f.write('')
-    #         if hcl is not None:
-    #             for hcl in header_comment_lines:
-    #                 f.write(f'c {hcl}')
-    #             f.write('')
-    #         f.write('t nodes')
-    #         f.write('c   Node          X-coord          Y-coord   Data1   Data2   Data3 Label')
-    #         for 
-#endregion
-
-
+    @staticmethod
+    def _test_attrs_in_expression(expr: str | None, attributes: List):
+        """ Check if attributes are in an expression. """
+        if expr is None:
+            return False
+        for attr in attributes:
+            if attr in expr:
+                return True
+        return False
 
 
 #region properties
 
     @property
     def traffic_vkt_expr(self) -> str:
-        return f'{self.length} * {self.trafficvol}'
+        return f'{self.link_length_col} * {self.link_total_volume_col}'
 
     @property
     def traffic_vht_expr(self) -> str:
-        return f'{self.autotime} * {self.trafficvol} / 60.0'
+        return f'{self.link_auto_travel_time_col} * {self.link_total_volume_col} / 60.0'
 
     @property
     def vcr_extr(self) -> str:
-        return f'{self.trafficvol} / ({self.lanes} * {self.lanecap})'
+        return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
 
     @property
     def transit_vkt_expr(self) -> str:
-        return f'{self.length} * {self.transit_volume}'
+        return f'{self.link_length_col} * {self.tsegments_volume_col}'
 
     @property
     def is_hypernetwork(self) -> bool:
         return self._test_if_hypernetwork()
 
 #endregion
+
