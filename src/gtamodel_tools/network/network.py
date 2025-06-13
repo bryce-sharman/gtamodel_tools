@@ -53,7 +53,10 @@ class Network(object):
         self.link_classification_defs = config.link_classification_defs
         self.zone_range_defs = config.zone_ranges
         self.node_range_defs = config.node_ranges
-        self.transit_opererator_regexprs = config.transit_opererator_regexprs
+        self.transit_operator_regexprs = config.transit_operator_regexprs
+        self.line_profile_definitions = config.line_profile_definitions
+        self.station_name_filepath = config.station_name_filepath
+        self.station_name_col = 'stn'
 
         # Column to store cartesian directions, used to match validation counts
         self.link_dir_col = 'link_dir' 
@@ -68,6 +71,9 @@ class Network(object):
             "Network with traffic results required."
         self.err_msg_no_transit_results = \
             "Network with transit results required."
+        
+        if self.station_name_filepath is not None:
+            self.station_names = self._read_station_names_file()
 
     def read_from_nwp(
             self,
@@ -168,26 +174,27 @@ class Network(object):
         self.links[self.link_auto_capacity_col] = \
             self.links[self.link_numlanes_col] \
                 * self.links[self.link_lane_capacity_col]
+        self.link_auto_volume_col = 'auto_volume'
+        self.link_additional_volume_col = 'additional_volume'
+        self.link_total_volume_col = 'traffic_volume'
+        self.link_auto_travel_time_col = 'auto_time'
+        self.traffic_results_cols = \
+            ['auto_volume', 'additional_volume', 'auto_time']
+
         # Transit columns
         self.toperator = "operator"
         self.tvehs_veh_col = 'veh'
         self.tline_line_col = 'line'
         self.tseg_loop_col = 'loop'
+        self.tsegment_boardings_col = 'boardings'
+        self.tsegment_alightings_col = 'alightings'
+        self.tsegments_volume_col = 'volume'
+        self.transit_results_cols  = ['boardings', 'alightings', 'volume']
+
         if self.has_traffic_results:
-            self.link_auto_volume_col = 'auto_volume'
-            self.link_additional_volume_col = 'additional_volume'
-            self.link_total_volume_col = 'traffic_volume'
-            self.link_auto_travel_time_col = 'auto_time'
-            self.traffic_results_cols = \
-                ['auto_volume', 'additional_volume', 'auto_time']
             self.links[self.link_total_volume_col] = \
                 self.links[self.link_auto_volume_col] \
                     + self.links[self.link_additional_volume_col]
-        if self.has_transit_results:
-            self.tsegment_boardings_col = 'boardings'
-            self.tsegment_alightings_col = 'alightings'
-            self.tsegments_volume_col = 'volume'
-            self.transit_results_cols  = ['boardings', 'alightings', 'volume']
 
         # These are used when collapsing a transit hypernetwork
         self.base_node_col = 'base_node'
@@ -260,7 +267,7 @@ class Network(object):
         tsegments_index = self.tsegments.index.get_level_values(0)
         self.tlines[self.toperator] = ''
         self.tsegments[self.toperator] = ''
-        for operator, regex_expr in self.transit_opererator_regexprs.items():
+        for operator, regex_expr in self.transit_operator_regexprs.items():
             fltr = tlines_index.str.match(regex_expr)
             self.tlines.loc[fltr, self.toperator] = operator
             fltr = tsegments_index.str.match(regex_expr)
@@ -791,10 +798,46 @@ class Network(object):
 
 
 #region Transit
+    def calculate_line_profiles_from_config(
+            self) -> pd.DataFrame:
+        """ 
+        Calculate line profiles for all transit lines defined in the 
+        network configuration file. This is a convenience method that
+        calls calc_line_profile for each transit line defined in the 
+        network configuration file.
+        
+        Returns:
+            pd.DataFrame
+                MultiIndex DataFrame indexed by transit line ID and station ID/label
+                Contains the following columns:
+                - boardings: Number of boardings at the station
+                - alightings: Number of alightings at the station
+                - volume: Passenger volume leaving the station
+        """
+        all_profiles = []
+        for line, line_directions in self.line_profile_definitions.items():
+            for ld, tlines in line_directions.items():
+                try:
+                    station_names = self.station_names.loc[idx[:, line]]
+                    profile = self.calc_line_profile(tlines, station_names)
+                except KeyError:
+                    profile = self.calc_line_profile(tlines, None)
+                if profile is not None:
+                    profile['Line'] = line
+                    profile['Direction'] = ld
+                    all_profiles.append(profile)
+                else:
+                    print(f'    No profile for {line} {ld}, skipping.')
+        final = pd.concat(all_profiles, axis=0)
+        final_index_names = final.index.names
+        final = final.reset_index()
+        final = final.set_index(['Line', 'Direction'] + final_index_names)
+        return final
+
     def calc_line_profile(
             self, tline_ids: str|List[str], 
             stn_labels: pd.Series | Dict | None=None
-        ) -> pd.DataFrame:
+        ) -> pd.DataFrame | None:
         """ 
         Calculate boardings, alightings and on-board riders along transit lines. 
         If multiple lines are defined, one line must be a shorter version of the 
@@ -803,99 +846,148 @@ class Network(object):
         Args:
             tline_id: str or List[str]
                 Transit line id(s)
-            stn_labels: pd.Series | Dict } None
+            stn_labels: pd.Series | Dict | None
                 Optional mapping between node ID and station label.
-                If None, then node IDs are returned, else maps in stop
-                labels to node id. Default is None.
+                Default is None.
 
         Returns:
-            pd.DataFrame
-                - Index is the station label
+            pd.DataFrame | None
+                - Index: station label, if defined in stn_labels, or the node id. 
                 - Contains the following columns:
                     - boardings: Number of boardings at the station
                     - alightings: Number of alightings at the station
                     - volume: Passenger volume leaving the station
+            Returns None if none of the transit lines exist in the network.
         """
-        def _sum_results_for_multiple_lineprofiles(
-                current, new, merge_type, suffixes):
+        def combine_lineprofiles(current, new, how, s):
             df = current.merge(
-                new, how=merge_type, left_index=True, 
-                right_index=True, suffixes=suffixes
+                new, how=how, left_index=True, right_index=True, suffixes=s
             ).fillna(0)
             for col in self.transit_results_cols:
-                df[col] = df[col + suffixes[0]] + df[col + suffixes[1]]
-                df = df.drop([col + suffixes[0], col + suffixes[1]], axis=1)
+                xcol = f'{col}{s[0]}'
+                ycol = f'{col}{s[1]}'
+                df[col] = df[xcol] + df[ycol]
+                df = df.drop([xcol, ycol], axis=1)
             return df
             
         suffixes=['_x', '_y']
         if isinstance(tline_ids, list) and len(tline_ids) == 1:
             tline_ids = tline_ids[0]
-            
+
         # Case 1: single line
         if isinstance(tline_ids, str):
-            tsegs = self.calc_line_profile_1line(tline_ids)
-            return tsegs
-        # Case 2: multiple lines
-        tsegs_list = []
-        for tline_id in tline_ids:
-            line_profile = self.calc_line_profile_1line(tline_id)
-            if line_profile is not None:
-                tsegs_list.append(line_profile)
-        # This is the case where multiple lines are in the list but
-        # only one actually exists.
-        if len(tsegs_list) == 1:
-            return tsegs_list[0]
-
-        # At this point we know there are at least two transit lines.
-        current = tsegs_list[0]
-        for i in range(1, len(tsegs_list)):
-            new = tsegs_list[i]
-            if current.index.equals(new.index):
-                # Two lines have the exact same index
-                current = _sum_results_for_multiple_lineprofiles(
-                    current, new, 'inner', suffixes)
+            line_profile = self.calc_line_profile_1line(tline_ids)
+        else:
+            # Case 2: multiple lines
+            tsegs_list = []
+            for tline_id in tline_ids:
+                line_profile = self.calc_line_profile_1line(tline_id)
+                if line_profile is not None:
+                    tsegs_list.append(line_profile)
+            # This is the case where multiple lines are in the list but
+            # only one actually exists.
+            if len(tsegs_list) == 1:
+                line_profile = tsegs_list[0]
             else:
-                current_minus_new = current.index.difference(new.index)
-                new_minus_current = new.index.difference(current.index)
-                if len(current_minus_new) > 0 and len(new_minus_current) == 0:
-                    # new_tsegs is entirely within current_tsegs
-                    current = _sum_results_for_multiple_lineprofiles(
-                        current, new, 'left', suffixes)
-                elif len(current_minus_new) == 0 and len(new_minus_current) > 0:
-                    # Current is 
-                    current = _sum_results_for_multiple_lineprofiles(
-                        new, current, 'left', suffixes)
-                else:
-                    print('No transit line is a subset of the other, '
-                        'Cannot create joint line profile. Returning None')
-                    return None
-        final = current
-        if isinstance(stn_labels, pd.Series) or isinstance(stn_labels, dict):
-            final = final.reset_index()
-            final['stn'] = final[self.link_fromnode_col].map(stn_labels)
-            fltr = pd.isna(final['stn'])
-            final.loc[fltr, 'stn'] = final.loc[fltr, self.link_fromnode_col]
-            final = final.set_index(['stn', self.tseg_loop_col])
-            final = final.drop(self.link_fromnode_col, axis=1)
-        return final
+                # At this point we know there are at least two transit lines.
+                ex = tsegs_list[0]
+                for i in range(1, len(tsegs_list)):
+                    new = tsegs_list[i]
+                    if ex.index.equals(new.index):
+                        how = 'inner'   # can really be anything
+                    else:
+                        ex_minus_new = ex.index.difference(new.index)
+                        new_minus_ex = new.index.difference(ex.index)
+                        if len(ex_minus_new) > 0 and len(new_minus_ex) == 0:
+                            how = 'left'
+                        elif len(ex_minus_new) == 0 and len(new_minus_ex) > 0:
+                            how = 'right'
+                        else:
+                            print('No transit line is a subset of the other, '
+                                'Cannot create joint line profile')
+                            return None
+                        current = combine_lineprofiles(ex, new, how, suffixes)
+                line_profile = current
+        if line_profile is None:
+            return None
+        line_profile = self.remove_unused_loops(line_profile)
+        line_profile = self.apply_stnname_mapping(line_profile, stn_labels)
+        return line_profile
 
     def calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
         """ 
         Helper function to get the boardings, alightings and volume along 
         the line. 
+
+        Args:
+            tline_id: str
+                transit line
+        Returns:
+            DataFrame where the index matches the transit segments 
+            (line, from_node, to_node, loop), and the columns are 
+            the transit segmehts results (boardings, alightings, volume)
+
+        Notes:
+            This method makes no attempt to remove the loop columns from the 
+            segments. This will be done in calc_line_profile.
         """
         if tline_id not in self.tlines.index:
-            print(f'Transit line {tline_id} does not exist, returning None.')
+            print(f'Transit line {tline_id} does not exist.')
             return None
         tsegs = self.tsegments.loc[
             idx[tline_id, :, :, :, :], self.transit_results_cols]
+        
         # add the hidden segment
-        # all passengers onboard at the end on train must alight
         last_tseg = tsegs.iloc[-1]
-        tsegs.loc[tline_id, last_tseg.name[2], 0, last_tseg.name[3]] = [
-            0, last_tseg[self.tsegments_volume_col], 0]
-        tsegs = tsegs.reset_index([self.tline_line_col, self.link_tonode_col], drop=True)
+        fromnode = last_tseg.name[2]  # j-node of last node
+        tonode = 0                    # hidden node is always 0
+        loop = last_tseg.name[3]      
+        alightings = last_tseg[self.tsegments_volume_col]  # everyone gets off
+        # Add a row to the end, pandas will do this through a loc 
+        # if the row does not exist in the index
+        tsegs.loc[tline_id, fromnode, tonode, loop] = [0, 0, 0]
+        tsegs.at[(tline_id, fromnode, tonode, loop), 
+                 self.tsegment_alightings_col] = alightings
+
+        # Drop the line and to_node columns out of the index
+        tsegs = tsegs.reset_index(
+            [self.tline_line_col, self.link_tonode_col], drop=True)
         return tsegs
+
+    def remove_unused_loops(self, line_profile: pd.DataFrame) -> pd.DataFrame:
+        """ Remove the loop column if the line is not looped. """
+        tseg_loop = line_profile.index.get_level_values(self.tseg_loop_col)
+        if tseg_loop.nunique() == 1:
+            return line_profile.droplevel(self.tseg_loop_col, axis=0)
+        else:
+            return line_profile
+
+    def apply_stnname_mapping(
+            self, 
+            line_profile: pd.DataFrame, 
+            stn_labels: Dict | pd.Series | None
+        ) -> pd.DataFrame:
+        if stn_labels is None:
+            return line_profile
+        line_profile = line_profile.copy()
+        node_ids = pd.Series(
+            line_profile.index.get_level_values(self.link_fromnode_col))
+        stns = node_ids.map(stn_labels)
+        isna = pd.isna(stns)
+        stns.loc[isna] = node_ids.loc[isna]    
+        if line_profile.index.nlevels == 1:  # no loops
+            line_profile = line_profile.set_index(stns)
+            line_profile.index.name = self.station_name_col
+        else:
+            index_cols = line_profile.index.names.copy()
+            index_cols.remove(self.link_fromnode_col)
+            index_cols = [self.station_name_col] + index_cols
+            line_profile = line_profile.reset_index()
+            line_profile[self.station_name_col] = stns
+            line_profile = line_profile.set_index(index_cols)
+            line_profile.index.names = index_cols
+            line_profile = line_profile.drop(self.link_fromnode_col, axis=1)
+        return line_profile 
 
     def summarize_transit_segments(
             self, 
@@ -941,7 +1033,7 @@ class Network(object):
         reqs_transit_results = test_attrs_in_expr_or_filter(
             expression, filter_expression, self.transit_results_cols)
         reqs_traffic_results = test_attrs_in_expr_or_filter(
-            expression, filter_expression, self.transit_results_cols)
+            expression, filter_expression, self.traffic_results_cols)
         reqs_links_columns = test_attrs_in_expr_or_filter(
             expression, filter_expression, self.links.columns)
         reqs_tlines_columns = test_attrs_in_expr_or_filter(
@@ -1028,6 +1120,42 @@ class Network(object):
             return True
         else:
             return False
+
+    def _read_station_names_file(self) -> pd.Series:
+        """ 
+        Reads station names from the station name file, if it exists.
+        
+        Returns:
+            pd.Series: 
+                Series defined as follows:
+                - MultiIndex containing: Node ID and Line
+                - Series values are station names.
+
+        """
+        if self.station_name_filepath is None: 
+            return None
+        elif not self.station_name_filepath.is_file():
+            raise FileNotFoundError(
+                f'Station name file {self.station_name_filepath} does not exist.'
+            )
+        elif self.station_name_filepath.suffix == '.csv':
+            s = pd.read_csv(
+                self.station_name_filepath, index_col=[0, 1], squeeze=True,
+            )
+            s.index.names = ['Node ID', 'Line']
+            s.name = 'stn_names'
+            return s
+        elif self.station_name_filepath.suffix == '.xlsx':
+            s = pd.read_excel(
+                self.station_name_filepath, index_col=[0, 1],
+            ).squeeze()
+            s.index.names = ['Node ID', 'Line']
+            s.name = 'stn_names'
+            return s
+        else:
+            raise ValueError(
+                f'Station name file {self.station_name_filepath} must be a .csv or .xlsx file.'
+            )
 
 #endregion
 
@@ -1285,6 +1413,8 @@ class Network(object):
     @property
     def is_hypernetwork(self) -> bool:
         return self._test_if_hypernetwork()
+
+
 
 #endregion
 

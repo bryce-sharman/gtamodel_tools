@@ -81,6 +81,11 @@ class Config(object):
             self.link_classification_defs = None
 
         try:
+            self.screenlines_fp = c['screenlines_fp']
+        except KeyError:
+            self.screenlines_fp = None
+
+        try:
             self.zone_ranges = c['zone_ranges']
         except KeyError:
             self.zone_ranges = None
@@ -91,10 +96,20 @@ class Config(object):
             self.node_ranges = None
 
         try:
-           self.transit_opererator_regexprs = c['transit_opererator_regexprs']
+           self.transit_operator_regexprs = c['transit_opererator_regexprs']
         except KeyError:
-           self.transit_opererator_regexprs = None
+           self.transit_operator_regexprs = None
 
+        try:
+            self.line_profile_definitions = c['line_profile_definitions']
+        except KeyError:
+            self.line_profile_definitions = None
+
+        try:
+            self.station_name_filepath = Path(c['station_name_filepath'])
+        except KeyError:
+            self.station_name_filepath = None
+            
         # Used to rename output columns to the GTAModel v4.1-v4.2 standard
         # Only needs to be defined if output columns don't match
         # that

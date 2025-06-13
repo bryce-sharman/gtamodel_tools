@@ -127,6 +127,8 @@ link_classification_defs:
     attr: vdf
     values: [90]
 
+screenlines_fp: S:\\Model Runs\\SummaryToolsSupport\\screenline_definitions.shp
+
 # The following outlines zone ranges, based on the zone number
 # Format is a dictionary where each item is a sub-dictionary (defined as follows)  
 #   the key is the label
@@ -213,6 +215,53 @@ transit_opererator_regexprs:
   GO Train: ^GT
   Link Train: ^L
 
+# Line profiles show the boardings, alightings and volumes along
+# a transit route. Multiple lines can be included, and the profile
+# will sum the results for all lines. One note, multiple lines
+# can currently only be included if one line is a subset of the 
+# other (e.g. short turn). Branched routes are currently not implemented.
+line_profile_definitions:
+  Line 1:
+    Vaughan_to_HighTech: [T001Aa, T001Ba]
+    HighTech_to_Vaughan: [T001Ab, T001Bb]
+  Line 2:
+    EB: [T002Aa, T002Ba]
+    WB: [T002Ab, T002Bb]
+  Line 3:
+    NB: T003Aa
+    SB: T003Ab   
+  Line 4:
+    EB: T004Aa
+    WB: T004Ab
+  Line 5:
+    EB: [T005Aa, T005Ba]
+    WB: [T005Ab, T005Bb]
+  Line 6:
+    EB: T006Ab
+    WB: T006Aa
+  EELRT Kennedy-SheppardMcCowan:
+    Kennedy_to_SheppardMcCowan: T007Aa
+    SheppardMcCowan_to_Kennedy: T007Ab
+  EELRT Kennedy-Malvern:
+    Kennedy_to_Malvern: T007Ba
+    Malvern_to_Kennedy: T007Bb
+  EELRT Kennedy-UTSC:
+    Kennedy_to_UTSC: T007Ca
+    UTSC_to_Kennedy: T007Cb
+  EELRT SheppardMcCowan-Malvern:
+    SheppardMcCowan_to_Malvern: T007Db
+    Malvern_to_SheppardMcCowan: T007Da
+  Waterfront East LRT:
+    EB: T519Aa
+    WB: T519Ab
+
+# Station name file path.
+# Note that the station description file expects three columns:
+# Node ID, Line, Station Name
+# The names are not important, just the order. 
+# The Line ID, must match a line in the 'line_profiles' inputs 	
+# This file can either be an Excel or CSV file
+station_name_filepath: "S:\\Model Runs\\SummaryToolsSupport\\Station Node IDs and Description.xlsx"
 
 ###############################################################################
 # Microsim configuration
