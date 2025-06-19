@@ -57,6 +57,7 @@ class Network(object):
         self.line_profile_definitions = config.line_profile_definitions
         self.station_name_filepath = config.station_name_filepath
         self.station_name_col = 'stn'
+        self.geometry_col = 'geometry'
 
         # Column to store cartesian directions, used to match validation counts
         self.link_dir_col = 'link_dir' 
@@ -256,7 +257,7 @@ class Network(object):
         """
         self.links[self.link_dir_col] = self.links.apply(
             lambda x: calc_linestring_orientation(
-                x['geometry'], self.grid_offset, 'cartesian'), axis=1)
+                x[self.geometry_col], self.grid_offset, 'cartesian'), axis=1)
 
     def apply_transit_operator(self):
         """ 
@@ -1099,6 +1100,10 @@ class Network(object):
                 aggregation_columns)[self.expr_colname].sum()      
 
 
+
+
+
+
     def _test_if_hypernetwork(self) -> bool:
         """ Look for overlapping links, indicating this is a hypernetwork. """
         links = self.links.reset_index()   
@@ -1253,7 +1258,8 @@ class Network(object):
         links2 = links.loc[fltr].groupby(
             [self.base_fromnode_col, self.base_tonode_col]).aggregate(agrls)
         links2.index.names = self.links.index.names
-        return links2
+        return gpd.GeoDataFrame(
+            links2, geometry=self.geometry_col, crs=self.network_crs)
     
     def _collapse_nodes(
             self, node_mappings: pd.Series, agrls: Dict) -> pd.DataFrame:
@@ -1262,7 +1268,8 @@ class Network(object):
         nodes['new_node'] = nodes[self.nodeid_col].map(node_mappings)
         nodes2 = nodes.groupby('new_node').aggregate(agrls)
         nodes2.index.name = self.nodes.index.name
-        return nodes2
+        return gpd.GeoDataFrame(
+            nodes2, geometry=self.geometry_col, crs=self.network_crs)
     
     def _collapse_tsegments(self, node_mappings: pd.Series) -> pd.DataFrame:
         """ Produces transit segment table using collapsed links.  
@@ -1377,6 +1384,7 @@ class Network(object):
         links = links.drop(['x_i', 'y_i', 'x_j', 'y_j'], axis=1)
         links[base_fromnode_col] = links[base_fromnode_col].astype(np.uint32)
         links[base_tonode_col] = links[base_tonode_col].astype(np.uint32)
+
         return links
     
 #endregion
