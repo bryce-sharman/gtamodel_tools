@@ -191,10 +191,12 @@ class Network(object):
         self.tvehs_veh_col = 'veh'
         self.tline_line_col = 'line'
         self.tseg_loop_col = 'loop'
+        self.tline_headway_col = 'headway'
         self.tsegment_boardings_col = 'boardings'
         self.tsegment_alightings_col = 'alightings'
         self.tsegments_volume_col = 'volume'
         self.transit_results_cols  = ['boardings', 'alightings', 'volume']
+        self.tveh_totalcapacity_col = 'total_capacity'
 
         if self.has_traffic_results:
             self.links[self.link_total_volume_col] = \
@@ -842,6 +844,64 @@ class Network(object):
 
 
 #region Transit
+
+    def output_transit_results_at_countposts(self, time_period_duration) -> pd.DataFrame:
+        """ 
+        Outputs transit volumes and capacities at countposts,
+        which are defined in the configuration file.
+
+        Args:
+        time_period_duration: float
+            Effective number of hours in the time period (used to calculate capacities)
+        
+        Returns:
+            pandas DataFrame:
+                - MultiIndex is the countpost description and direction
+                - Values are:
+                    'volume': transit volume on all routes using the link
+                    'capacity': total capacity of all routes using the link
+                    'vcr': V/C ratio.
+            """
+        if self.is_hypernetwork:
+            raise RuntimeError(
+                "Transit countposts cannot be computed on a hyper network... "
+                "Collapse first.")
+        countposts = self.transit_countposts
+        if countposts is None:
+            raise RuntimeError(
+                "No traffic countposts defined in the configuration file.")
+        countposts = countposts.to_crs(self.links.crs)  
+
+        # Merge in vehicle capacities
+        tsegs = self.tsegments.reset_index()
+        tsegs = tsegs.merge(
+            self.tlines[[self.tvehs_veh_col, self.tline_headway_col]], 
+            left_on=self.tline_line_col, 
+            right_index=True
+        )
+        tsegs = tsegs.merge(
+            self.tvehicles[[self.tveh_totalcapacity_col]], 
+            left_on=self.tvehs_veh_col, 
+            right_index=True
+        )
+        tsegs['capacity'] = tsegs[self.tveh_totalcapacity_col] * \
+            (60.0 * time_period_duration) / tsegs[self.tline_headway_col]
+        ptsegs = tsegs.groupby(
+            [self.link_fromnode_col, self.link_tonode_col])[[
+                self.tsegments_volume_col, 'capacity']].sum()
+
+        # merge in the volumes and capacities to the links
+        links = self.links.merge(ptsegs, left_index=True, right_index=True)
+        links = links[[self.link_dir_col, self.tsegments_volume_col, 
+                       'capacity', self.geometry_col]]
+        countposts_col = 'countpost'
+        cp_links = countposts.sjoin_nearest(links)
+        cp_links.index.name = countposts_col
+        cp_links = cp_links.reset_index()
+        cp_links = cp_links.set_index([countposts_col, self.link_dir_col])
+        cp_links['vcr'] = cp_links[self.tsegments_volume_col] / cp_links['capacity']
+        return cp_links[[self.tsegments_volume_col, 'capacity', 'vcr']]
+
     def calculate_line_profiles_from_config(
             self) -> pd.DataFrame:
         """ 
