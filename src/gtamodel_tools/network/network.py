@@ -56,6 +56,10 @@ class Network(object):
         self.transit_operator_regexprs = config.transit_operator_regexprs
         self.line_profile_definitions = config.line_profile_definitions
         self.station_name_filepath = config.station_name_filepath
+        self.traffic_countposts = config.traffic_countposts
+        self.transit_countposts = config.transit_countposts
+
+
         self.station_name_col = 'stn'
         self.geometry_col = 'geometry'
 
@@ -487,6 +491,45 @@ class Network(object):
                 print(links2[['link_dir']])
             screenlines_list.append(scrnln_summary)
         return pd.concat(screenlines_list, axis=0)
+    
+    def output_traffic_results_at_countposts(self) -> pd.DataFrame:
+        """ 
+        Outputs auto, additional volume and total volume at countposts,
+        which are defined in the configuration file.
+
+        Returns:
+            pandas DataFrame:
+                - MultiIndex is the countpost description and direction
+                - Values are:
+                    auto volume, additional volume, total volume, link 
+                    capacity and V/C ratio.
+        """
+        countposts = self.traffic_countposts
+        if countposts is None:
+            raise RuntimeError(
+                "No traffic countposts defined in the configuration file.")
+        countposts = countposts.to_crs(self.links.crs)
+
+        countposts_col = 'countpost'
+        # Filter out connectors and non-auto links
+        links = self.filter_link_connectors()
+        auto_filter = links[self.link_allowed_modes_col].str.contains(
+            self.automode_id)
+        links = links.loc[auto_filter]
+
+        cp_links = countposts.sjoin_nearest(links, distance_col='distances')
+        cp_links.index.name = countposts_col
+        cp_links = cp_links.reset_index()
+        cp_links = cp_links.set_index([countposts_col, self.link_dir_col])
+        cp_links = cp_links[[
+            self.link_auto_volume_col, 
+            self.link_additional_volume_col, 
+            self.link_total_volume_col, 
+            self.link_auto_capacity_col]]
+        cp_links['vcr'] = cp_links[self.link_total_volume_col].divide(
+            cp_links[self.link_auto_capacity_col])
+        return cp_links
+
 #endregion
 
 

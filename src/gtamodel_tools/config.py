@@ -2,7 +2,9 @@
 Module to store all inputs entered from the configuration file.
 """
 from datetime import time
+import geopandas as gpd
 from os import PathLike
+import pandas as pd
 from pathlib import Path
 from yaml import safe_load
 
@@ -108,8 +110,27 @@ class Config(object):
         try:
             self.station_name_filepath = Path(c['station_name_filepath'])
         except KeyError:
-            self.station_name_filepath = None
-            
+            self.station_name_filepath = None   
+
+        try:
+            countposts = c['traffic_countposts']
+            cp_df = pd.DataFrame.from_dict(countposts, orient='index')
+            geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
+            self.traffic_countposts = gpd.GeoDataFrame(
+                index=cp_df.index, geometry=geom, crs='EPSG:4326')
+        except KeyError:
+            self.traffic_countposts = None
+
+        try:
+            countposts = c['transit_countposts']
+            cp_df = pd.DataFrame.from_dict(countposts, orient='index')
+            geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
+            self.transit_countposts = gpd.GeoDataFrame(
+                index=cp_df.index, geometry=geom, crs='EPSG:4326')
+        except KeyError:
+            self.transit_countposts = None
+
+
         # Used to rename output columns to the GTAModel v4.1-v4.2 standard
         # Only needs to be defined if output columns don't match
         # that
