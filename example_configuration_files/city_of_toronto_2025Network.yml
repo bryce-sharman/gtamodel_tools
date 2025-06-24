@@ -127,6 +127,8 @@ link_classification_defs:
     attr: vdf
     values: [90]
 
+screenlines_fp: "S:\\Model Runs\\SummaryToolsSupport\\screenline_definitions.shp"
+
 # The following outlines zone ranges, based on the zone number
 # Format is a dictionary where each item is a sub-dictionary (defined as follows)  
 #   the key is the label
@@ -213,6 +215,235 @@ transit_opererator_regexprs:
   GO Train: ^GT
   Link Train: ^L
 
+# Line profiles show the boardings, alightings and volumes along
+# a transit route. Multiple lines can be included, and the profile
+# will sum the results for all lines. One note, multiple lines
+# can currently only be included if one line is a subset of the 
+# other (e.g. short turn). Branched routes are currently not implemented.
+line_profile_definitions:
+  Line 1:
+    Vaughan_to_HighTech: [T001Aa, T001Ba]
+    HighTech_to_Vaughan: [T001Ab, T001Bb]
+  Line 2:
+    EB: [T002Aa, T002Ba]
+    WB: [T002Ab, T002Bb]
+  Line 3:
+    NB: T003Aa
+    SB: T003Ab   
+  Line 4:
+    EB: T004Aa
+    WB: T004Ab
+  Line 5:
+    EB: [T005Aa, T005Ba]
+    WB: [T005Ab, T005Bb]
+  Line 6:
+    EB: T006Ab
+    WB: T006Aa
+  EELRT Kennedy-SheppardMcCowan:
+    Kennedy_to_SheppardMcCowan: T007Aa
+    SheppardMcCowan_to_Kennedy: T007Ab
+  EELRT Kennedy-Malvern:
+    Kennedy_to_Malvern: T007Ba
+    Malvern_to_Kennedy: T007Bb
+  EELRT Kennedy-UTSC:
+    Kennedy_to_UTSC: T007Ca
+    UTSC_to_Kennedy: T007Cb
+  EELRT SheppardMcCowan-Malvern:
+    SheppardMcCowan_to_Malvern: T007Db
+    Malvern_to_SheppardMcCowan: T007Da
+  Waterfront East LRT:
+    EB: T519Aa
+    WB: T519Ab
+
+# Station name file path.
+# Note that the station description file expects three columns:
+# Node ID, Line, Station Name
+# The names are not important, just the order. 
+# The Line ID, must match a line in the 'line_profiles' inputs 	
+# This file can either be an Excel or CSV file
+station_name_filepath: "S:\\Model Runs\\SummaryToolsSupport\\Station Node IDs and Description.xlsx"
+
+# traffic countposts
+#   key is the countpost label: subdirectory contains the latidude and longitude
+#traffic_countposts:
+#  Yonge S of Bloor:
+#    latitude: 43.6698
+#    longitude: -79.3864
+
+
+# transit countposts:
+#   key is the countpost label: subdirectory contains the latidude and longitude
+transit_countposts:
+  Line 1 S of VMC:
+    latitude: 43.78875
+    longitude: -79.52561
+    modes: ["m"]
+  Line 1 S of Sheppard W Stn:
+    latitude: 43.74881
+    longitude: -79.462168
+    modes: [m]
+  Line 1 S of Eg W Stn:
+    latitude: 43.69542
+    longitude: -79.43364
+    modes: [m]
+  Line 1 S of St George Stn:
+    latitude: 43.66701
+    longitude: -79.39368
+    modes: [m]
+  Line 1 W of Union Stn:
+    latitude: 43.645389
+    longitude: -79.382363
+    modes: [m]
+  Line 1 E of Union Stn:
+    latitude: 43.646733
+    longitude: -79.378009
+    modes: [m]
+  Line 1 S of Yonge/Bloor Stn:
+    latitude: 43.668775
+    longitude: -79.385093
+    modes: [m]
+  Line 1 S of Eglinton Stn:
+    latitude: 43.70346
+    longitude: -79.39862
+    modes: [m]
+  Line 1 S of Sheppard Stn:
+    latitude: 43.75800
+    longitude: -79.410278
+    modes: [m]
+  Line 1 S of Clark Stn:
+    latitude: 43.80244
+    longitude: -79.42212
+    modes: [m]
+  Line 1 S of Bridge Stn:
+    latitude: 43.82953
+    longitude: -79.41557
+    modes: [m]
+  Line 2 E of Islington Stn:
+    latitude: 43.645552
+    longitude: -79.523613
+    modes: [m]
+  Line 2 E of Old Mill Stn:
+    latitude: 43.64875
+    longitude: -79.49151
+    modes: [m]
+  Line 2 E of Dundas W Stn:
+    latitude: 43.657404
+    longitude: -79.451422
+    modes: [m]
+  Line 2 W of St George Stn:
+    latitude: 43.668149
+    longitude: -79.399936
+    modes: [m]
+  Line 2 E of Yonge/Bloor Stn:
+    latitude: 43.671083
+    longitude: -79.383807
+    modes: [m]
+  Line 2 W of Broadview Stn:
+    latitude: 43.675833
+    longitude: -79.360415
+    modes: [m]
+  Line 2 W of Pape Stn:
+    latitude: 43.679098
+    longitude: -79.34812
+    modes: [m]
+  Line 2 W of Victoria Park Stn:
+    latitude: 43.693633
+    longitude: -79.292112
+    modes: [m]
+  Line 2 W of Kennedy Stn:
+    latitude: 43.72997
+    longitude: -79.26879
+    modes: [m]
+  Line 2 S of STC Stn:
+    latitude: 43.76898
+    longitude: -79.24969
+    modes: [m]
+  Line 2 S of Sheppard/McCowan Stn:
+    latitude: 43.78431
+    longitude: -79.25554
+    modes: [m]
+  Line 3 E of Exhibition:
+    latitude: 43.63956
+    longitude: -79.41177
+    modes: [m]
+  Line 3 W of Osgoode Stn:
+    latitude: 43.650885
+    longitude: -79.388632
+    modes: [m]
+  Line 3 E of Yonge St:
+    latitude: 43.653259
+    longitude: -79.377081
+    modes: [m]
+  Line 3 W of East Harbour:
+    latitude: 43.6547
+    longitude: -79.3491
+    modes: [m]
+  Line 3 S of Pape Stn:
+    latitude: 43.67467
+    longitude: -79.34378
+    modes: [m]
+  Line 3 S of Eglinton:
+    latitude: 43.71749
+    longitude: -79.33703
+    modes: [m]
+  Line 4 E of Yonge St:
+    latitude: 43.76211
+    longitude: -79.40444
+    modes: [m]
+  Line 4 W of Don Mills Stn:
+    latitude: 43.77375
+    longitude: -79.35091
+    modes: [m]
+  Line 5 E of Renforth:
+    latitude: 43.66865
+    longitude: -79.58292
+    modes: [l]
+  Line 5 E of Scarlett Rd:
+    latitude: 43.68484
+    longitude: -79.50674
+    modes: [l]
+  Line 5 E Mt Dennis:
+    latitude: 43.68992
+    longitude: -79.47818
+    modes: [l]
+  Line 5 W of Eglinton W Stn:
+    latitude: 43.69858
+    longitude: -79.43852
+    modes: [l]
+  Line 5 E of Yonge St:
+    latitude: 43.70779
+    longitude: -79.39547
+    modes: [l]
+  Line 5 E of Don Mills Rd:
+    latitude: 43.72154
+    longitude: -79.33708
+    modes: [l]
+  Line 5 W of Kennedy Stn:
+    latitude: 43.731901
+    longitude: -79.268414
+    modes: [l]
+  Line 6 W of E of Humber College:
+    latitude: 43.73479
+    longitude: -79.59944
+    modes: [l]
+  Line 6 W of E of Islington:
+    latitude: 43.747082
+    longitude: -79.564765
+    modes: [l]
+  Line 6 Crossing Hwy 400:
+    latitude:  43.754419
+    longitude: -79.530577
+    modes: [l]
+  Line 6 E of Jane St:
+    latitude: 43.7576
+    longitude: -79.51549
+    modes: [l]
+  Line 6 W of Finch W Stn:
+    latitude: 43.76233
+    longitude:  -79.49508
+    modes: [l]
+    modes: [l]
+   
 
 ###############################################################################
 # Microsim configuration
