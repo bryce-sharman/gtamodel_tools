@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from typing import Optional, Type
 
@@ -179,12 +180,15 @@ class MicroSim():
                     f"{list(self.time_periods.keys())}")
             tripmodes_filter_expr = self._add_timeperiod_to_tripmodes_filter(
                 time_period, tripmodes_filter_expr)
-
-        # We always have to merge trips and tripmodes
-        trips = data.apply_dataframe_filter(self.trips.reset_index(), trips_filter_expr)
+            
+        # We always have to merge trips and tripmodes as we need the trip
+        # origins and destinations from the trips table, and the departure
+        # time, which is from the tripmodes table.
+        suffixes = ['_tm', '_t']
+        trips = data.apply_dataframe_filter(
+            self.trips.reset_index(), trips_filter_expr)
         tripmodes = data.apply_dataframe_filter(
             self.tripmodes.reset_index(), tripmodes_filter_expr)
-        suffixes = ['_tm', '_t']
         trips_with_modes = tripmodes.reset_index().merge(
             trips, 
             how='inner',
@@ -230,6 +234,86 @@ class MicroSim():
             destination_name = me.DZONE_COL
         s.index.names = [origin_name, destination_name, me.MODE]
         return s
+    
+    def calculate_trip_departure_time_profiles(
+            self,
+            time_interval: int,
+            households_filter_expr: Optional[str]=None,
+            persons_filter_expr: Optional[str]=None,
+            trips_filter_expr: Optional[str]=None,
+            tripmodes_filter_expr: Optional[str]=None
+            ) -> pd.DataFrame:
+        """ Spatially aggregates trips by mode, allowing optional filters. 
+
+            Args:
+            time_interval: int
+                length of time interval in minutes. 
+            households_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            persons_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            trips_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            tripmodes_filter_expr: str or None
+                Optional filter expression on trip_modes table. If defined
+                this is applies attribute filter using pandas.eval. Note that
+                the 'time_period' argument is the preferred way of 
+                identifying trips by default GTAModel time periods.
+
+        """
+        # Always need to merge trips into trip modes in order to calculate
+        # the final trip weight.
+        suffixes = ['_tm', '_t']
+        trips = data.apply_dataframe_filter(
+            self.trips.reset_index(), trips_filter_expr)
+        tripmodes = data.apply_dataframe_filter(
+            self.tripmodes.reset_index(), tripmodes_filter_expr)
+        tripmodes = tripmodes.merge(
+            trips[[me.HHLD, me.PERSON, me.TRIP, me.WEIGHT]], 
+            how='inner',
+            left_on=[me.HHLD, me.PERSON, me.TRIP],
+            right_on=[me.HHLD, me.PERSON, me.TRIP],
+            suffixes=suffixes
+        )
+        if isinstance(households_filter_expr, str):
+            households_df = data.apply_dataframe_filter(
+                self.households, households_filter_expr)
+            fltr = tripmodes[me.HHLD].isin(households_df.index)
+            tripmodes = tripmodes.loc[fltr]
+        if isinstance(persons_filter_expr, str):
+            persons_df = data.apply_dataframe_filter(
+                self.persons, persons_filter_expr).reset_index()
+            fltr = (tripmodes[me.HHLD].isin(persons_df[me.HHLD])) & (
+                    tripmodes[me.PERSON].isin(persons_df[me.PERSON]))
+            tripmodes = tripmodes.loc[fltr]
+
+        # Check for trips occurring on either the previous or next day, and
+        # move them to the current day.
+        nmin_per_day = float(24 * 60)
+        fltr_prevday = tripmodes[me.O_DEPART] < 0
+        tripmodes.loc[fltr_prevday, me.O_DEPART] = tripmodes.loc[
+            fltr_prevday, me.O_DEPART] + nmin_per_day
+        fltr_nextday = tripmodes[me.O_DEPART] >= nmin_per_day
+        tripmodes.loc[fltr_nextday, me.O_DEPART] = \
+            tripmodes.loc[fltr_nextday, me.O_DEPART] - nmin_per_day
+
+        # Calculate the total weight, and produce summary
+        final_weight_col = 'FINALWEIGHT'
+        tripmodes[final_weight_col] = \
+            tripmodes[me.WEIGHT + suffixes[0]] \
+            * tripmodes[me.WEIGHT + suffixes[1]]  
+        tripmodes['DEP_INTERVAL'] = tripmodes[
+            me.O_DEPART].floordiv(time_interval).astype(np.uint32)
+        trips_by_interval = tripmodes.groupby('DEP_INTERVAL')[
+            'FINALWEIGHT'].sum() / self.microsim_tripmode_nsamples
+        time_intvl_labels = _create_timeinterval_index(time_interval)
+        trips_by_interval.index =  time_intvl_labels         
+            
+        return trips_by_interval
+
 
     def _add_timeperiod_to_tripmodes_filter(
             self, time_period: str, tripmodes_filter_expr: str | None) -> str:
@@ -248,3 +332,21 @@ class MicroSim():
             return f'({tripmodes_filter_expr}) and ({period_fltr_expr})'
 
 #endregion
+
+
+def _convert_to_hour_min(t):
+    """ Convert time that is input as minutes after midnight to hh:mm. """
+    hours = t // 60
+    minutes = t - 60 * hours
+    return f'{hours:02d}:{minutes:02d}'
+
+def _create_timeinterval_index(time_interval):
+    """ Create time interval labels (e.g. 06:20-06:40) for each time interval. """
+    nmin_per_day = 24 * 60
+    ti = []
+    for i in range(nmin_per_day // time_interval):
+        lower = _convert_to_hour_min(i * time_interval)
+        upper = _convert_to_hour_min((i + 1) * time_interval)
+        time = f'{lower}-{upper}'
+        ti.append(time)
+    return pd.Index(ti)
