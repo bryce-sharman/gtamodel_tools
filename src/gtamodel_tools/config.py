@@ -126,7 +126,7 @@ class Config(object):
             cp_df = pd.DataFrame.from_dict(countposts, orient='index')
             geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
             self.transit_countposts = gpd.GeoDataFrame(
-                index=cp_df.index, geometry=geom, crs='EPSG:4326')
+                index=cp_df.index, data=cp_df['modes'], geometry=geom, crs='EPSG:4326')
         except KeyError:
             self.transit_countposts = None
 

@@ -16,6 +16,7 @@ import numpy as np
 from os import PathLike
 import pandas as pd
 from pathlib import Path
+from shapely import Polygon
 from typing import Dict, List, Self, Type
 
 from gtamodel_tools.common.gis import calc_linestring_orientation
@@ -189,6 +190,7 @@ class Network(object):
         # Transit columns
         self.toperator = "operator"
         self.tvehs_veh_col = 'veh'
+        self.tline_mode_col = 'mode'
         self.tline_line_col = 'line'
         self.tseg_loop_col = 'loop'
         self.tline_headway_col = 'headway'
@@ -862,6 +864,11 @@ class Network(object):
                     'capacity': total capacity of all routes using the link
                     'vcr': V/C ratio.
             """
+        COUNTPOSTS_BUFFER = 100.0
+        volume_col = self.tsegments_volume_col
+        capacity_col = 'capacity'
+        countposts_col = 'countpost'
+        vcr_col = 'vcr'
         if self.is_hypernetwork:
             raise RuntimeError(
                 "Transit countposts cannot be computed on a hyper network... "
@@ -875,7 +882,7 @@ class Network(object):
         # Merge in vehicle capacities
         tsegs = self.tsegments.reset_index()
         tsegs = tsegs.merge(
-            self.tlines[[self.tvehs_veh_col, self.tline_headway_col]], 
+            self.tlines[[self.tline_mode_col, self.tvehs_veh_col, self.tline_headway_col]], 
             left_on=self.tline_line_col, 
             right_index=True
         )
@@ -884,23 +891,51 @@ class Network(object):
             left_on=self.tvehs_veh_col, 
             right_index=True
         )
-        tsegs['capacity'] = tsegs[self.tveh_totalcapacity_col] * \
+        tsegs[capacity_col] = tsegs[self.tveh_totalcapacity_col] * \
             (60.0 * time_period_duration) / tsegs[self.tline_headway_col]
-        ptsegs = tsegs.groupby(
-            [self.link_fromnode_col, self.link_tonode_col])[[
-                self.tsegments_volume_col, 'capacity']].sum()
+        
 
-        # merge in the volumes and capacities to the links
-        links = self.links.merge(ptsegs, left_index=True, right_index=True)
-        links = links[[self.link_dir_col, self.tsegments_volume_col, 
-                       'capacity', self.geometry_col]]
-        countposts_col = 'countpost'
-        cp_links = countposts.sjoin_nearest(links)
-        cp_links.index.name = countposts_col
-        cp_links = cp_links.reset_index()
-        cp_links = cp_links.set_index([countposts_col, self.link_dir_col])
-        cp_links['vcr'] = cp_links[self.tsegments_volume_col] / cp_links['capacity']
-        return cp_links[[self.tsegments_volume_col, 'capacity', 'vcr']]
+        countposts_buffer = gpd.GeoDataFrame(
+            index=countposts.index,
+            geometry=countposts.buffer(COUNTPOSTS_BUFFER),
+            data=countposts['modes'],
+            crs = countposts.crs
+        )
+
+        f_list = []
+        # Go through the countposts one-by-one as we are allowing a mode filter
+        # for each countpost.
+        for cpb in countposts_buffer.iterfeatures():
+            cpb_id = cpb['id']
+            cpb_modes = cpb['properties']['modes']
+            cpb_geom = cpb['geometry']['coordinates'][0]
+            tsegs_tmp = tsegs.loc[tsegs[self.tline_mode_col].isin(cpb_modes)]
+            ptsegs = tsegs_tmp.groupby(
+                [self.link_fromnode_col, self.link_tonode_col])[[
+                    volume_col, capacity_col]].sum()
+            # merge in the volumes and capacities to the link geometries
+            links = self.links.merge(ptsegs, left_index=True, right_index=True)
+            links = links[[self.link_dir_col, volume_col, 
+                          capacity_col, self.geometry_col]]
+            # once again, convert to GeoDataFrame
+            cpb = gpd.GeoDataFrame(
+                index=[cpb_id],
+                geometry=[Polygon(cpb_geom)],
+                data=[cpb_modes],
+                crs = countposts.crs
+            )
+            cp_links = links.sjoin(cpb)
+            idxmax = cp_links.groupby('link_dir')[volume_col].idxmax()
+            for l in idxmax:
+                # two square brackets to make a DataFrame
+                f_list.append(cp_links.loc[[l]])   
+
+
+        final = pd.concat(f_list, axis=0)
+        final[vcr_col] = final[volume_col] / final[capacity_col]
+        final = final.set_index(['index_right', self.link_dir_col])  
+        final.index.names = [countposts_col, self.link_dir_col]
+        return final[[volume_col, capacity_col, vcr_col]]
 
     def calculate_line_profiles_from_config(
             self) -> pd.DataFrame:
