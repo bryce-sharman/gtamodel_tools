@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, Type
+from typing import Dict, List, Optional, Type
 
 from gtamodel_tools.config import Config
 import gtamodel_tools.common.data as data
@@ -129,6 +129,126 @@ class MicroSim():
 #endregion
 
 #region Summarize methods
+    def summarize_households(
+            self,
+            home_sa: Type[sa.SpatialAggregator],
+            weight_expr: str = me.WEIGHT,
+            crosstabs: str | List[str] | None = None,
+            crosstab_segments: Dict | List[Dict] | None = None,
+            hhld_fltr_expr: Optional[str] = None,
+        ) -> pd.Series:
+        """Spatially aggregates synthetic households, allowing optional filters.
+        
+        Args:
+            home_sa: Spatial aggregation on home zone. 
+            weight_expr: Value to be aggregated. This is an expression that 
+                will be evaluatated using pandas .eval.
+            crosstabs: column or list of columns to be used to used create 
+                cross-tabulations tables
+            crosstab_segments = dictionary, or list of dictionaries, that define 
+                crosstab segmentation
+            hhld_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter household data using their attributes. If None then no 
+                filter is applied using household attributes.
+
+        Returns:
+            pandas.DataFrame with the summary data.
+
+        """
+        hhlds_df = data.apply_dataframe_filter(self.households, hhld_fltr_expr)
+        return sa.summarize_table_with_spatial_aggregation(
+            hhlds_df, weight_expr, me.HOME_ZONE, home_sa, 
+            crosstabs, crosstab_segments
+        )
+
+    def summarize_persons(
+            self,
+            home_sa: Type[sa.SpatialAggregator] | False = False,
+            work_sa: Type[sa.SpatialAggregator] | False = False,
+            school_sa: Type[sa.SpatialAggregator] | False = False,
+            weight_expr: str = me.WEIGHT,
+            crosstabs: str | List[str] | None = None,
+            crosstab_segments: Dict | List[Dict] | None = None,
+            hhld_fltr_expr: Optional[str] = None,
+            pers_fltr_expr: Optional[str] = None,
+        ) -> pd.DataFrame:
+        """ Spatially aggregates synthetic persons, allowing optional filters.
+
+        Even though there are only a population and household file and it is 
+        possible to perform a single merge on these file, this method uses the 
+        same approach as is anticipated for the microsim data. 
+        
+        This involves performing independent filters of the households and 
+        persons file before merging data together, if this is required. The 
+        purpose to do this is to save memory from the merged data, which 
+        admittedly is not a major problem in this case, but is expected to
+        become one for the microsim data.
+        
+        Args:
+            home_sa: Spatial aggregation on home zone. 
+                If False, then summaries will not be computed on home zone.
+            work_sa: Spatial aggregation on work zone. 
+                If False, then summaries will not be computed on work zone.
+                Only one of work_sa and school_sa can be other than None.
+            school_sa: Spatial aggregation on school zone.  
+                If False, then summaries will not be computed on school zone.
+                Only one of work_sa and school_sa can be a value other than None.
+            weight_expr: Value to be aggregated. This is an expression that 
+                will be evaluatated using pandas .eval.
+            crosstabs: column or list of columns to be used to used create 
+                cross-tabulations tables
+            crosstab_segments = dictionary, or list of dictionaries, that 
+                define crosstab segmentation
+            hhld_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter household data using their attributes. If None then no 
+                filter is applied using household attributes.
+            pers_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter persons data using their attributes. If None then no 
+                filter is applied using persons attributes.
+                
+        Returns:
+            pandas.DataFrame with the summary data.
+            
+        """
+        # Any aggregation definition that is not explicitly False 
+        # (i.e. None or sa.SpatialAggregator) will be created
+        aggr_home = False if home_sa is False else True
+        aggr_work = False if work_sa is False else True
+        aggr_school = False if school_sa is False else True
+        if aggr_home + aggr_work + aggr_school < 1:
+            raise ValueError(
+                "At least one spatial aggregation must be defined."
+            )
+
+        # Check if any of the crosstab columns are household attributes, 
+        # need to merge persons with households in this case.
+        has_hhld_crosstab_col=False
+        if crosstabs:
+            for ct in list(crosstabs):
+                if ct in me.HHLD_DTYPES.keys():
+                    has_hhld_crosstab_col=True
+                    break
+
+        pers_df = data.apply_dataframe_filter(self.persons, pers_fltr_expr)
+        if home_sa or home_sa==None or hhld_fltr_expr or has_hhld_crosstab_col:
+            # Merge the filtered home and persons tables
+            # Dropping the households weight as we won't use that for a persons  
+            # summary and name conflicts with persons weight
+            hhlds_df = data.apply_dataframe_filter(
+                self.households, hhld_fltr_expr)
+            hhlds_df = hhlds_df.drop(me.WEIGHT, axis=1)
+            pers_df = pers_df.merge(
+                hhlds_df, how="inner", on=me.HHLD)
+        return sa.summarize_table_with_spatial_aggregation(
+            df=pers_df, 
+            values=weight_expr, 
+            geom_id=[me.HOME_ZONE, me.WORK_ZONE, me.SCHOOL_ZONE],
+            spatial_aggregations=[home_sa, work_sa, school_sa], 
+            crosstabs=crosstabs, 
+            crosstab_segments=crosstab_segments
+        )
+
+
     def summarize_trips_by_mode(
             self,
             origin_sa: Type[sa.SpatialAggregator],

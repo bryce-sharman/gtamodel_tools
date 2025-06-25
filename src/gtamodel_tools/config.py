@@ -1,14 +1,11 @@
 """ 
 Module to store all inputs entered from the configuration file.
 """
-from datetime import time
 import geopandas as gpd
 from os import PathLike
 import pandas as pd
 from pathlib import Path
 from yaml import safe_load
-
-import gtamodel_tools.common.spatial_aggregator as sa
 
 class Config(object):
     """ Class to store configuration file inputs.

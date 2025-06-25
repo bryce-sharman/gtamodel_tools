@@ -35,55 +35,68 @@ TRIPDIR_DTYPE = pd.CategoricalDtype(
 
 # I will column used in an index here so that it can ber
 # referenced without hard coding.
+WEIGHT = 'weight'
 HHLD = 'household_id'
+HOME_ZONE = 'home_zone'
+N_PERSONS = 'persons'
+DWELLING_TYPE = 'dwelling_type'
+N_VEHICLES = 'vehicles'
+INCOME_CAT = 'income_class'
+
+# Person columns
 PERSON = 'person_id'
+AGE = 'age'
+GENDER = 'sex'
+WORK_ZONE = 'work_zone'
+SCHOOL_ZONE = 'school_zone' 
+EMP_STATUS = 'employment_status'
+OCCUPATION = 'occupation'
+
+# Trip and trip modes columns
 TRIP = 'trip_id'
 MODE = 'mode'
-STATION = 'station'
-DIRECTION = 'direction'
-WEIGHT = 'weight'
-PASS = 'passenger_id'
-PASSTRIP = 'passenger_trip_id'
-
 OZONE_COL = 'o_zone'
 DZONE_COL = 'd_zone'
-
 O_DEPART = 'o_depart'
 D_ARRIVE = 'd_arrive'
-
 O_ACTIVITY = 'o_act'
 D_ACTIVITY = 'd_act'
-
 DEPTIME_COL = 'o_depart'
 ARRTIME_COL = 'd_arrive'
+
+# Trip station columns
+STATION = 'station'
+DIRECTION = 'direction'
+PASS = 'passenger_id'
+PASSTRIP = 'passenger_trip_id'
 
 # The following are the column names in GTAModel v4.1/v4.2, which are 
 # considered as the current standard. Provision is made in the 
 # config file to rename these columns, such as for v4.0 standard.
 HHLD_DTYPES = {
     HHLD: RECORD_DTYPE,
-    'home_zone': ZONE_DTYPE,   
+    HOME_ZONE: ZONE_DTYPE,   
     WEIGHT: WEIGHT_DTYPE,
-    'persons': SHORTUINT_DTYPE,
-    'dwelling_type': SHORTUINT_DTYPE,
-    'vehicles': SHORTUINT_DTYPE,
-    'income_class': SHORTUINT_DTYPE,
+    N_PERSONS: SHORTUINT_DTYPE,
+    DWELLING_TYPE: SHORTUINT_DTYPE,
+    N_VEHICLES: SHORTUINT_DTYPE,
+    INCOME_CAT: SHORTUINT_DTYPE,
 }
 HHLD_INDEX_COLS = [HHLD]
 
 PERS_DTYPES = {
     HHLD: RECORD_DTYPE,
     PERSON: SHORTUINT_DTYPE,
-    'age': SHORTUINT_DTYPE,
-    'sex': SEX_DTYPE,
+    AGE: SHORTUINT_DTYPE,
+    GENDER: SEX_DTYPE,
     'license': BOOL_DTYPE,
     'transit_pass': BOOL_DTYPE,
-    'employment_status': EMP_OR_STUDENT_STATUS_DTYPE,
-    'occupation': OCCUPATION_STATUS_DTYPE,
+    EMP_STATUS: EMP_OR_STUDENT_STATUS_DTYPE,
+    OCCUPATION: OCCUPATION_STATUS_DTYPE,
     'free_parking': BOOL_DTYPE,
     'student_status': EMP_OR_STUDENT_STATUS_DTYPE,
-    'work_zone': ZONE_DTYPE,
-    'school_zone': ZONE_DTYPE,
+    WORK_ZONE: ZONE_DTYPE,
+    SCHOOL_ZONE: ZONE_DTYPE,
     WEIGHT: WEIGHT_DTYPE,
     'telecommuter': SHORTUINT_DTYPE   # XTMF 1.13+ (optional)
 }
