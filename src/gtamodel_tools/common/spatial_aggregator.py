@@ -308,4 +308,38 @@ def summarize_table_with_spatial_aggregation(
                             observed=True
         )
         pt.columns = values
+
+    if pt.index.nlevels > 1:
+        pt = pt.unstack()
+        pt.columns = pt.columns.droplevel(0)
     return pt
+
+def create_integer_crosstab_segment_dict(
+        min_value: int, 
+        max_separate_value: int, 
+        max_value: int, 
+        prefix: str='',
+        suffix: str=''
+    ) -> Dict:
+    """ Create a crosstab_segmentation dictionary for integer values.
+    
+    Args:
+        min_value: int
+            Minimum value to include
+        max_separate_value: int
+            Maximum value that is enumerated separately. Anything beyond
+            this is placed into a single category.
+        max_value: int, 
+            Maximum value to include in the dictionary.
+        prefix: str
+            Text to add to the start of the category name
+        suffix: str
+            Text to add to the end of the category name
+
+    """
+    d = {}
+    for i in range(min_value, max_separate_value+1):
+        d[i] = f'{prefix}{i}{suffix}'
+    for i in range(max_separate_value+1, max_value + 1):
+        d[i] = f'{prefix}{max_separate_value + 1}+{suffix}'
+    return d

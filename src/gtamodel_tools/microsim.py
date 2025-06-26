@@ -129,7 +129,7 @@ class MicroSim():
 #endregion
 
 #region Summarize methods
-    def summarize_households(
+    def summarize_households_custom(
             self,
             home_sa: Type[sa.SpatialAggregator],
             weight_expr: str = me.WEIGHT,
@@ -137,7 +137,9 @@ class MicroSim():
             crosstab_segments: Dict | List[Dict] | None = None,
             hhld_fltr_expr: Optional[str] = None,
         ) -> pd.Series:
-        """Spatially aggregates synthetic households, allowing optional filters.
+        """ 
+        Create a custom spatially aggregation of synthetic households, allowing 
+        optional filters.
         
         Args:
             home_sa: Spatial aggregation on home zone. 
@@ -452,7 +454,6 @@ class MicroSim():
             return f'({tripmodes_filter_expr}) and ({period_fltr_expr})'
 
 #endregion
-
 
 def _convert_to_hour_min(t):
     """ Convert time that is input as minutes after midnight to hh:mm. """

@@ -51,6 +51,7 @@ WORK_ZONE = 'work_zone'
 SCHOOL_ZONE = 'school_zone' 
 EMP_STATUS = 'employment_status'
 OCCUPATION = 'occupation'
+HAS_LICENSE = 'license'
 
 # Trip and trip modes columns
 TRIP = 'trip_id'
@@ -89,7 +90,7 @@ PERS_DTYPES = {
     PERSON: SHORTUINT_DTYPE,
     AGE: SHORTUINT_DTYPE,
     GENDER: SEX_DTYPE,
-    'license': BOOL_DTYPE,
+    HAS_LICENSE: BOOL_DTYPE,
     'transit_pass': BOOL_DTYPE,
     EMP_STATUS: EMP_OR_STUDENT_STATUS_DTYPE,
     OCCUPATION: OCCUPATION_STATUS_DTYPE,
