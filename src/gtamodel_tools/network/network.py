@@ -1493,7 +1493,9 @@ class Network(object):
             ):
             raise RuntimeError(
                 'Non base-to-hypernetwork transfer links were not '
-                'merged in links to base_network links merge.')
+                'merged in links to base_network links merge. ' \
+                'This could be due to an incorrect hyper-network node range ' \
+                'in the config file.')
         # Need to find the base nodes in these cases. Note that if there are
         # 3+ layers in the hypernetwork, then there are links where neither
         # their I or J nodes are in the network
