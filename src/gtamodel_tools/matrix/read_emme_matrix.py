@@ -17,7 +17,7 @@ from gtamodel_tools.matrix.matrix import Matrix
 
 
 def read_mdf(
-        file: Union[str, FileIO, Path],
+        filepath: Union[str, FileIO, Path],
         *, 
         tall: bool = False
     ) -> Union[pd.DataFrame, pd.Series]:
@@ -36,25 +36,25 @@ def read_mdf(
     Returns:
         gtamodel_tools.matrix.matrix.Matrix
     """
-    with open_file(file, mode='rb') as file_handler:
+    with open(file, mode='rb') as f:
         magic, version, dtype_index, ndim = np.fromfile(
-            file_handler, np.uint32, count=4)
+            f, np.uint32, count=4)
         if (magic != 0xC4D4F1B2 or version != 1 or  
                 not (0 < dtype_index <= 4) or not (0 < ndim <= 2)):
             raise IOError("Unexpected file header: magic number: %X, "
                           "version: %d, data type: %d, dimensions: %d."
                           % (magic, version, dtype_index, ndim))
-        shape = np.fromfile(file_handler, np.uint32, count=ndim)
+        shape = np.fromfile(f, np.uint32, count=ndim)
 
         index_list = []
         for n_items in shape:
-            indices = np.fromfile(file_handler, np.int32, n_items)
+            indices = np.fromfile(f, np.int32, n_items)
             index_list.append(indices)
 
         dtype = {1: np.float32, 2: np.float64, 3: np.int32, 4: np.uint32}[
             dtype_index]
         flat_length = shape.prod()  # Multiply the shape tuple
-        matrix = np.fromfile(file_handler, dtype, count=flat_length)
+        matrix = np.fromfile(f, dtype, count=flat_length)
         matrix.shape = shape
 
         if ndim == 1:
@@ -63,50 +63,6 @@ def read_mdf(
             matrix = pd.DataFrame(
                 matrix, index=index_list[0], columns=index_list[1])
         return Matrix(ndim, matrix)
-
-
-def peek_mdf(
-        file: Union[str, FileIO, Path], 
-        *, 
-        as_index: bool = True
-    ) -> Union[List[List[int]], List[pd.Index]]:
-    """Partially opens an MDF file to get zone system rows and columns.
-
-    Args:
-        file (str | FileIO | Path): 
-            The file to read.
-        as_index (bool, optional): 
-            Set to ``True`` to return a pandas.Index object rather than
-            List[int]. Defaults to ``True``. 
-
-    Returns:
-        List[int] or List[pandas.Index]: 
-            One item for each dimension. If ``as_index=True``, 
-            the items will be pandas.Index objects, 
-            otherwise they will be List[int].
-
-    """
-    with open_file(file, mode='rb') as file_handler:
-        magic, version, dtype_index, ndim = np.fromfile(
-            file_handler, np.uint32, count=4)
-
-        if (magic != 0xC4D4F1B2 or version != 1 
-                or not (0 < dtype_index <= 4) or not (0 < ndim <= 2)):
-            raise IOError("Unexpected file header: magic number: %X, "
-                          "version: %d, data type: %d, dimensions: %d."
-                          % (magic, version, dtype_index, ndim))
-
-        shape = np.fromfile(file_handler, np.uint32, count=ndim)
-
-        index_list = []
-        for n_items in shape:
-            indices = np.fromfile(file_handler, np.int32, n_items)
-            index_list.append(indices)
-
-        if not as_index:
-            return index_list
-
-        return [pd.Index(zones) for zones in index_list]
 
 
 def read_emx(file: Union[str, FileIO, Path], 
@@ -159,7 +115,7 @@ def read_emx(file: Union[str, FileIO, Path],
         <class 'pandas.core.series.Series'> 100
 
     """
-    with open_file(file, mode='rb') as reader:
+    with open(file, mode='rb') as reader:
         data = np.fromfile(reader, dtype=np.float32)
 
         n = int(len(data) ** 0.5)
@@ -188,4 +144,6 @@ def read_emx(file: Union[str, FileIO, Path],
 
         return matrix.stack() if tall else matrix
 
-
+    @classmethod
+    def from_csv(cls, fp):
+        pass

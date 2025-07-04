@@ -40,7 +40,7 @@ def test_modelregion_unique():
         name='sa_model_region', 
         ids=pd.Series(range(0, 100))
     )
-    assert np.array_equal(spat_aggr.unique_regions(), ref_regions)
+    assert np.array_equal(spat_aggr.unique_regions, ref_regions)
 
 def test_1lvl_mapping_int_dict():
     ref_mapping = pd.Series(
@@ -119,7 +119,7 @@ def test_1lvl_mapping_int_unique():
         lvl1_mapping={0:'a', 1:'b', 2:'a', 3:'b', 4:'a', 5:'b', 
                      6:'a', 7:'b', 8:'c', 9:'c', 10:'c', 11:'d'}
     )
-    assert np.array_equal(spat_aggr.unique_regions(), ref_regions)
+    assert np.array_equal(spat_aggr.unique_regions, ref_regions)
 
 def test_1lvl_mapping_str_unique():
     ref_regions = np.array([1, 2, 3, 4])
@@ -129,7 +129,7 @@ def test_1lvl_mapping_str_unique():
         lvl1_mapping={0:1, 1:2, 2:1, 3:2, 4:1, 5:2, 
                      6:1, 7:2, 8:3, 9:3, 10:3, 11:4}
     )
-    assert np.array_equal(spat_aggr.unique_regions(), ref_regions)
+    assert np.array_equal(spat_aggr.unique_regions, ref_regions)
 
 def test_2lvl_mapping_int_dict_mappings():
     ref_mapping = pd.Series(
@@ -189,7 +189,7 @@ def test_2lvl_mapping_str_unique():
             }),
         lvl2_mapping=pd.Series({'aa': 'm', 'bb': 'm', 'cc': 'n', 'dd': 'm'})
     )
-    assert np.array_equal(spat_aggr.unique_regions(), ref_regions)
+    assert np.array_equal(spat_aggr.unique_regions, ref_regions)
 
 def test_customranges_int_regions():
     ref_mapping = pd.Series(

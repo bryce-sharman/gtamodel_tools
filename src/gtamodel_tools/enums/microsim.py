@@ -1,150 +1,141 @@
 # MicroSim Enums for GTAModel v4.0
 
+from enum import Enum, IntEnum, StrEnum
 import numpy as np
 import pandas as pd
 
 
-ZONE_DTYPE = np.dtype('u2')       # 16-bit, range between 0 and 65,635
-WEIGHT_DTYPE = np.dtype('f4')     # 32-bit
-SHORTUINT_DTYPE = np.dtype('u1')  # 8-bit, range between 0 and 255
-RECORD_DTYPE = np.dtype('u4')     # 32-bit, range between 0 and ~4.3 billion
-BOOL_DTYPE = np.dtype('?') 
-TIME_DTYPE = np.dtype('f2')       # It's minutes after midnight, doesn't need
-                                  # to be very precise
-
-SEX_DTYPE = pd.CategoricalDtype(categories=['M', 'F'])
-EMP_OR_STUDENT_STATUS_DTYPE = pd.CategoricalDtype(categories=['F', 'O', 'P'])
-OCCUPATION_STATUS_DTYPE = pd.CategoricalDtype(
-    categories=['P', 'G', 'O', 'S', 'M']
-)
-ACTIVTY_DTYPE = pd.CategoricalDtype(
-    categories=[
-        'Home', 'PrimaryWork', 'School', 'WorkBasedBusiness', 'Market'
-        'IndividualOther', 'JointOther', 'SecondaryWork', 'JointMarket'
-        ]
-)
-MODE_DTYPE = pd.CategoricalDtype(
-    categories=[
-        'Walk', 'WAT', 'Auto', 'Carpool', 'Schoolbus', 'RideShare', 'Passenger',
-        'Bicycle', 'DAT'
-    ]
-)
-TRIPDIR_DTYPE = pd.CategoricalDtype(
-    categories=['auto2transit' or 'transit2auto']
-)
-
-# I will column used in an index here so that it can ber
-# referenced without hard coding.
+HHLD_ID = 'household_id'
+PERS_ID = 'person_id'   
+TRIP_ID = 'trip_id'
+TRIPMODE_ID = 'mode'
 WEIGHT = 'weight'
-HHLD = 'household_id'
-HOME_ZONE = 'home_zone'
-N_PERSONS = 'persons'
-DWELLING_TYPE = 'dwelling_type'
-N_VEHICLES = 'vehicles'
-INCOME_CAT = 'income_class'
-
-# Person columns
-PERSON = 'person_id'
-AGE = 'age'
-GENDER = 'sex'
-WORK_ZONE = 'work_zone'
-SCHOOL_ZONE = 'school_zone' 
-EMP_STATUS = 'employment_status'
-OCCUPATION = 'occupation'
-HAS_LICENSE = 'license'
-
-# Trip and trip modes columns
-TRIP = 'trip_id'
-MODE = 'mode'
-OZONE_COL = 'o_zone'
-DZONE_COL = 'd_zone'
-O_DEPART = 'o_depart'
-D_ARRIVE = 'd_arrive'
-O_ACTIVITY = 'o_act'
-D_ACTIVITY = 'd_act'
-DEPTIME_COL = 'o_depart'
-ARRTIME_COL = 'd_arrive'
-
-# Trip station columns
 STATION = 'station'
 DIRECTION = 'direction'
-PASS = 'passenger_id'
-PASSTRIP = 'passenger_trip_id'
+PASS_ID = 'passenger_id'
+PASSTRIP_ID = 'passenger_trip_id'
+class MSDtypes(Enum):
+    ZONE = np.dtype('u2')       # 16-bit, range between 0 and 65,635
+    WEIGHT = np.dtype('f4')     # 32-bit
+    SHORTUINT = np.dtype('u1')  # 8-bit, range between 0 and 255
+    RECORD = np.dtype('u4')     # 32-bit, range between 0 and ~4.3 billion
+    BOOL = np.dtype('?') 
+    TIME = np.dtype('f2')       # It's minutes after midnight, doesn't need
+                                # to be very precise
+#region Table definitions
+class HhldFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    HOME_ZONE = 'home_zone'
+    WEIGHT = WEIGHT
+    N_PERSONS = 'persons'
+    DWELLING_TYPE = 'dwelling_type'
+    N_VEHICLES = 'vehicles'
+    INCOME_CAT = 'income_class'
+class PersFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    PERS_ID = PERS_ID
+    AGE = 'age'
+    GENDER = 'sex'
+    HAS_LICENSE = 'license'
+    HAS_TRPASS = 'transit_pass'
+    EMP_STATUS = 'employment_status'
+    OCCUPATION = 'occupation'
+    FREE_PARKING = 'free_parking'
+    STD_STATUS = 'student_status'
+    WORK_ZONE = 'work_zone'
+    SCHOOL_ZONE = 'school_zone' 
+    WEIGHT = WEIGHT
+    TELECOMMUTER = 'telecommuter'
 
-# The following are the column names in GTAModel v4.1/v4.2, which are 
-# considered as the current standard. Provision is made in the 
-# config file to rename these columns, such as for v4.0 standard.
-HHLD_DTYPES = {
-    HHLD: RECORD_DTYPE,
-    HOME_ZONE: ZONE_DTYPE,   
-    WEIGHT: WEIGHT_DTYPE,
-    N_PERSONS: SHORTUINT_DTYPE,
-    DWELLING_TYPE: SHORTUINT_DTYPE,
-    N_VEHICLES: SHORTUINT_DTYPE,
-    INCOME_CAT: SHORTUINT_DTYPE,
-}
-HHLD_INDEX_COLS = [HHLD]
+class TripFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    PERS_ID = PERS_ID
+    TRIP_ID = TRIP_ID
+    O_ACTIVITY = 'o_act'
+    O_ZONE = 'o_zone'
+    D_ACTIVITY = 'd_act'
+    D_ZONE = 'd_zone'
+    WEIGHT = WEIGHT
 
-PERS_DTYPES = {
-    HHLD: RECORD_DTYPE,
-    PERSON: SHORTUINT_DTYPE,
-    AGE: SHORTUINT_DTYPE,
-    GENDER: SEX_DTYPE,
-    HAS_LICENSE: BOOL_DTYPE,
-    'transit_pass': BOOL_DTYPE,
-    EMP_STATUS: EMP_OR_STUDENT_STATUS_DTYPE,
-    OCCUPATION: OCCUPATION_STATUS_DTYPE,
-    'free_parking': BOOL_DTYPE,
-    'student_status': EMP_OR_STUDENT_STATUS_DTYPE,
-    WORK_ZONE: ZONE_DTYPE,
-    SCHOOL_ZONE: ZONE_DTYPE,
-    WEIGHT: WEIGHT_DTYPE,
-    'telecommuter': SHORTUINT_DTYPE   # XTMF 1.13+ (optional)
-}
-PERS_INDEX_COLS =[HHLD, PERSON]
+class TripModesFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    PERS_ID = PERS_ID
+    TRIP_ID = TRIP_ID
+    TRIPMODE_ID = TRIPMODE_ID
+    O_DEPART = 'o_depart'
+    D_ARRIVE = 'd_arrive'
+    WEIGHT = WEIGHT
+class TripStnsFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    PERS_ID = PERS_ID
+    TRIP_ID = TRIP_ID
+    STATION = STATION
+    DIRECTION = DIRECTION
+    WEIGHT = WEIGHT
+    TRIPMODE_ID = TRIPMODE_ID
 
-TRIP_DTYPES = {
-    HHLD: RECORD_DTYPE,
-    PERSON: SHORTUINT_DTYPE,
-    TRIP: SHORTUINT_DTYPE,
-    O_ACTIVITY: ACTIVTY_DTYPE,
-    OZONE_COL: ZONE_DTYPE,
-    D_ACTIVITY: ACTIVTY_DTYPE,
-    DZONE_COL: ZONE_DTYPE,
-    WEIGHT: WEIGHT_DTYPE,
-    'JointTourRep': SHORTUINT_DTYPE,
-    'JointTourRepTripId': SHORTUINT_DTYPE
-}
-TRIP_INDEX_COLS = [HHLD, PERSON, TRIP]
+class FacPassFields(StrEnum):
+    HHLD_ID = HHLD_ID
+    PASS_ID = PASS_ID
+    PASSTRIP_ID = PASSTRIP_ID
+    DRIVER_ID = 'driver_id'
+    DRIVERTRIP_ID = 'driver_trip_id'
+    WEIGHT = WEIGHT
+#endregion
+# region Field Categories
+class HhldDwellingType(IntEnum):
+    GROUND = 1
+    APARTMENT = 2
+    TOWNHOUSE = 3
+    UNDEFINED = 9
+class PersGender(StrEnum):
+    MALE = 'M'
+    FEMALE = 'F'
 
-TRIPMODE_DTYPES = {
-    HHLD: RECORD_DTYPE,
-    PERSON: SHORTUINT_DTYPE,
-    TRIP: SHORTUINT_DTYPE,
-    MODE: MODE_DTYPE,
-    O_DEPART: TIME_DTYPE,
-    D_ARRIVE: TIME_DTYPE,
-    WEIGHT: WEIGHT_DTYPE
-}
-TRIPMODE_INDEX_COLS = [HHLD, PERSON, TRIP, MODE]
+class PersEmpStatus(StrEnum):
+    UPW_FT = 'F'
+    UPW_PT = 'P'
+    WAH_FT = 'H'
+    WAH_PT = 'J'
+    NOTEMPLOYED = 'O'
 
-TRIPSTN_DTYPES= {
-    HHLD: RECORD_DTYPE,
-    PERSON: SHORTUINT_DTYPE,
-    TRIP: SHORTUINT_DTYPE,
-    STATION: ZONE_DTYPE,
-    DIRECTION: TRIPDIR_DTYPE,
-    WEIGHT: WEIGHT_DTYPE,
-    MODE: MODE_DTYPE    # xtmf 1.8+
-}
-TRIPSTN_INDEX_COLS = [HHLD, PERSON, TRIP, STATION, DIRECTION]
+class PersOccup(StrEnum):
+    GENERAL = 'G'
+    MANUFACTURING = 'M'
+    PROFESSIONAL = 'P'
+    SERVICE = 'S'
+    NOT_EMPLOYED = 'O'    
 
-FACPAC_DTYPES = {
-    HHLD: RECORD_DTYPE,
-    PASS: SHORTUINT_DTYPE,
-    PASSTRIP: SHORTUINT_DTYPE,
-    'driver_id': SHORTUINT_DTYPE,
-    'driver_trip_id': SHORTUINT_DTYPE,
-    WEIGHT: WEIGHT_DTYPE
-}
-FACPAC_INDEX_COLS = [HHLD, PASS, PASSTRIP]
+class PersStudentStatus(StrEnum):
+    FT = 'S'
+    PT = 'P'
+    NOTSTUDENT = 'O'
+class TripActivity(StrEnum):
+    PRIMARY_WORK = "PrimaryWork"  # The main work activity episode going to the assigned work location for the individual
+    SECONDARY_WORK = "SecondaryWork"  # A work activity episode not going to the primary work location
+    WORK_BASED_BUSINESS = "WorkBasedBusiness"  # A work location not going to the main work location, such as a business meeting
+    SCHOOL = "School"  # A school activity episode
+    MARKET = "Market"  # A market activity episode
+    JOINT_MARKET = "JointMarket"  # A market activity episode that is part of a joint tour
+    INDIVIDUAL_OTHER = "IndividualOther"  # An activity episode that is not work, school, or market
+    JOINT_OTHER = "JointOther"  # An activity episode that is not work, school, or market and is part of a joint tour
+    HOME = "Home"  # The home activity episode
+    RETURN_FROM_WORK = "ReturnFromWork"  # A purposeful return home activity episode from work, such as lunch
+
+class TripMode(StrEnum):
+    AUTO = "Auto"
+    RIDESHARE = "RideShare"
+    VEHICLE_FOR_HIRE = "VFH"
+    PASSENGER = "Passenger"
+    CARPOOL = "Carpool"
+    WALK_ACCESS_TRANSIT = "WAT"
+    DRIVE_ACCESS_TRANSIT = "DAT"
+    PASSENGER_ACCESS_TRANSIT = "PAT"
+    PASSENGER_EGRESS_TRANSIT = "PET"
+    WALK = "Walk"
+    BIKE = "Bicycle"
+    SCHOOLBUS = "Schoolbus"
+
+class TransitDirection(StrEnum):
+    AUTO_TO_TRANSIT = "auto2transit"
+    TRANSIT_TO_AUTO = "transit2auto"
