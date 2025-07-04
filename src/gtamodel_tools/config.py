@@ -36,25 +36,14 @@ class Config(object):
         # Set and test directory holding network results
         self.networks_subdir = \
             self.model_outputs_dir / c['network_subdirectory']
-        if not self.networks_subdir.is_dir():
-            raise FileExistsError(
-                f'Directory not found: {self.networks_subdir}')
         
         # Test subdirectory holding MicroSim results
         self.microsim_subdir = \
             self.model_outputs_dir / c['microsim_subdirectory']
-        if not self.microsim_subdir.is_dir():
-            raise FileExistsError(
-                f'Directory not found: {self.microsim_subdir}')
         
         # MicroSim results files, within the microsim directory
         self.microsim_filepaths = c['microsim_filenames']
-        # add full path to microsim results files and test file existence
-        for ms_fn, ms_name in self.microsim_filepaths.items():
-           self.microsim_filepaths[ms_fn] = self.microsim_subdir / ms_name
-           if not self.microsim_filepaths[ms_fn].is_file():
-              raise FileExistsError('File not found: {results_fp}')
-           
+
         # Time period definitions
         # Start and end times are in minutes after midnight
         # Start times are inclusive; end times are exclusive
