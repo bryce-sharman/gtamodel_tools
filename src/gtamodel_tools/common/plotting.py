@@ -133,7 +133,7 @@ def plot_tlfds(fp, *args):
 
     n_series = int(len_args // 2)
     all_bins = []
-    for i in range(0, n_series, 4):
+    for i in range(0, n_series+1, 4):
         v = list(args[i])
         bins=list(args[i+1])
         label = args[i+2]
@@ -148,19 +148,23 @@ def plot_tlfds(fp, *args):
         all_bins.extend(bins)
 
     all_bins = np.sort(np.unique(all_bins))
-    ymin, ymax = ax.get_ylim()
-    xmin, xmax = ax.get_xlim()
+    # Set x limits to the first and last bin edge
+
+    ymax = ax.get_ylim()[1]
+    xmax = ax.get_xlim()[1]
+    ax.set_xlim(0, xmax)
+    ax.set_ylim(0, ymax)
     # Draw outer box around limits
     ax.plot([0, 0], [0, ymax], color='k', linewidth=2)
-    ax.plot([xmax, xmax], [0, ymax], color='k', linewidth=2)
     ax.plot([0, xmax], [0, 0], color='k', linewidth=2)
-    ax.plot([0, xmax], [ymax, ymax], color='k', linewidth=2)
     # Draw dotted lines at bin edges
     for ab in all_bins:
         if ab > 0 and ab < xmax:
             ax.plot([ab, ab], [0, ymax], color='k', linestyle=':',
                    linewidth=0.5)
-    ax.legend(loc='upper center')
-    
+    ax.legend(loc='center right')
+    ax.set_ylabel('Number of trips', fontsize=12)
+    ax.set_xlabel('Distance', fontsize=12)
+    ax.set_title('Trip Length Frequecy Distribution')
     fig.savefig(fp)
     fig.clf()
