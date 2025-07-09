@@ -30,12 +30,12 @@ def apply_dataframe_filter(
     Returns:
         Filtered table
     """
-    has_filter = True if filter_expr else False
-    if has_filter:
+    if filter_expr is None:
+        return df.copy()
+    else:
         filter_values = df.eval(filter_expr, engine="numexpr").astype(bool)
         return df.loc[filter_values].copy()
-    else:
-        return df.copy()
+        
     
 
 def round_to_totals(df: pd.DataFrame, rounding_def: dict) -> pd.DataFrame:

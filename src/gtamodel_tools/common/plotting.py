@@ -106,3 +106,65 @@ def plot_line_profiles(
 
     fig.savefig(fp)
     fig.clf()
+
+
+def plot_tlfds(fp, *args):
+    """ Plot an number of trip length distributions.
+
+    Args:
+        fp: Filepath in which to save final plot
+        args:
+            Set of four inputs, each containing:
+            - numpy array: cumulative number of trips
+            - numpy array: bins
+            - str: label
+            - matplotlib color
+    """
+    len_args = len(args)
+    if len_args == 0 or len_args % 4 != 0:
+        raise ValueError(
+            '*args must contain inputs in sets of four, as follows: \n'
+            '  - cumulative number of trips \n'
+            '  - bin edges \n'
+            '  - label \n'
+            '  - matplotlib color \n'
+        )
+    fig, ax = plt.subplots(layout='constrained')
+
+    n_series = int(len_args // 2)
+    all_bins = []
+    for i in range(0, n_series+1, 4):
+        v = list(args[i])
+        bins=list(args[i+1])
+        label = args[i+2]
+        color = args[i+3]
+        
+        x = [bins[0]]
+        y = [0]
+        for j in range(0, len(v)):
+            x.extend([bins[j], bins[j+1]])
+            y.extend([v[j], v[j]])
+        ax.plot(x, y, label=label, color=color)
+        all_bins.extend(bins)
+
+    all_bins = np.sort(np.unique(all_bins))
+    # Set x limits to the first and last bin edge
+
+    ymax = ax.get_ylim()[1]
+    xmax = ax.get_xlim()[1]
+    ax.set_xlim(0, xmax)
+    ax.set_ylim(0, ymax)
+    # Draw outer box around limits
+    ax.plot([0, 0], [0, ymax], color='k', linewidth=2)
+    ax.plot([0, xmax], [0, 0], color='k', linewidth=2)
+    # Draw dotted lines at bin edges
+    for ab in all_bins:
+        if ab > 0 and ab < xmax:
+            ax.plot([ab, ab], [0, ymax], color='k', linestyle=':',
+                   linewidth=0.5)
+    ax.legend(loc='center right')
+    ax.set_ylabel('Number of trips', fontsize=12)
+    ax.set_xlabel('Distance', fontsize=12)
+    ax.set_title('Trip Length Frequecy Distribution')
+    fig.savefig(fp)
+    fig.clf()

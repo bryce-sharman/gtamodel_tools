@@ -285,9 +285,9 @@ class Network(object):
     def filter_link_connectors(self):
         """ Returns copy of links table with connectors removed"""
         fltr_inode_is_cntrd = self.links.index.get_level_values(
-            self.link_fromnode_col).isin(self.zone_ranges().index)
+            self.link_fromnode_col).isin(self.zone_ranges.mapping.index)
         fltr_jnode_is_cntrd = self.links.index.get_level_values(
-            self.link_tonode_col).isin(self.zone_ranges().index)
+            self.link_tonode_col).isin(self.zone_ranges.mapping.index)
         return self.links.loc[
             (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
 
@@ -369,7 +369,7 @@ class Network(object):
                 raise ValueError(
                     f"Invalid parameter 'aggregate_on_node'. Must be either "
                     f"{self.link_fromnode_col} or {self.link_tonode_col}")
-            aggr_colname = node_aggregation().name
+            aggr_colname = node_aggregation.mapping.name
             crosstab_columns = [aggr_colname]
         else:
             crosstab_columns = []
@@ -398,7 +398,7 @@ class Network(object):
             # Apply geographic segmentation to nodes, merging to links as needed.
             if node_aggregation is not None:
                 nodes = self.nodes.merge(
-                    node_aggregation(), 
+                    node_aggregation.mapping, 
                     how="inner", 
                     left_index=True, 
                     right_index=True
@@ -413,7 +413,7 @@ class Network(object):
             if final.index.nlevels == 1:
                 return final
             else:
-                return final.unstack(fill_value=0.0)  # unstack last level
+                return final.unstack(fill_value=0)  # unstack last level
 
     def summarize_traffic_across_screenlines(
             self, 
@@ -1132,7 +1132,7 @@ class Network(object):
             self, 
             expression: str,
             filter_expression: str | None = None,
-            node_aggr: Type[sa.SpatialAggregator] | None = None,
+            node_aggregation: Type[sa.SpatialAggregator] | None = None,
             crosstab_columns: str | List[str] | None = None
         ) -> float | pd.DataFrame:
         """ 
@@ -1153,7 +1153,7 @@ class Network(object):
                 evaluatated using pandas.eval. If None then no filter is 
                 applied. Link, transit line and transit segment and transit 
                 vehicle attributes can be specified. Default is None.
-            node_aggr: sa.SpatialAggregator or None
+            node_aggregation: sa.SpatialAggregator or None
                 Spatial aggregation applied to nodes. All segment attributes
                 are aggregated at the I-node. If None, then values from all 
                 segments are summarized together. Default is None.
@@ -1186,7 +1186,8 @@ class Network(object):
             raise RuntimeError(self.err_msg_no_transit_results)
 
         # Test if trying to perform node aggregation on a hypernetwork
-        if node_aggr is not None and self.is_hypernetwork:
+        if isinstance(node_aggregation, sa.SpatialAggregator) \
+                and self.is_hypernetwork:
             raise RuntimeError(
                 'Cannot perform transit summaries with node aggregations on a '
                 'hypernetwork. Collapse network before running summary.')
@@ -1218,29 +1219,29 @@ class Network(object):
         #Evalulate expression
         tsegs[self.expr_colname] = tsegs.eval(expression)   
 
-        if node_aggr is None and crosstab_columns is None:
-            # This is the simple case, no spatial aggregation   
-            return tsegs[self.expr_colname].sum()
+        if not isinstance(node_aggregation, sa.SpatialAggregator):
+            if crosstab_columns is None:
+                # This is the simple case, no spatial aggregation   
+                return tsegs[self.expr_colname].sum()
+            else:
+                aggregation_columns = crosstab_columns
         else:
             # Merge in geographic segmentation
             aggregation_columns = []
-            if node_aggr is not None:
-                aggr_colname = node_aggr().name
-                nodes = self.nodes.merge(
-                    node_aggr(), how="inner", left_index=True, right_index=True)
-                tsegs = tsegs.merge(
-                    nodes[[aggr_colname]], left_on='inode', right_index=True)
-                if crosstab_columns is not None:
-                    aggregation_columns = [aggr_colname] + crosstab_columns
+            aggr_colname = node_aggregation.mapping.name
+            nodes = self.nodes.merge(
+                node_aggregation.mapping, how="inner", 
+                left_index=True, right_index=True)
+            tsegs = tsegs.merge(
+                nodes[[aggr_colname]], left_on='inode', right_index=True)
+            if crosstab_columns is None:
+                aggregation_columns = [aggr_colname]
+            elif isinstance(crosstab_columns, str):
+                aggregation_columns = [aggr_colname] + [crosstab_columns]
             else:
-                aggregation_columns = crosstab_columns
-            return tsegs.groupby(
-                aggregation_columns)[self.expr_colname].sum()      
-
-
-
-
-
+                aggregation_columns = [aggr_colname] + crosstab_columns
+        return tsegs.groupby(
+            aggregation_columns)[self.expr_colname].sum()      
 
     def _test_if_hypernetwork(self) -> bool:
         """ Look for overlapping links, indicating this is a hypernetwork. """
@@ -1458,8 +1459,8 @@ class Network(object):
             raise RuntimeError('Length change after merging node coordinates.')
 
         # Only keep non-hypernetwork links
-        fltr = self.node_ranges() != 'Hypernetwork nodes'
-        non_hypntwk_nodes = self.node_ranges().loc[fltr]
+        fltr = self.node_ranges.mapping != 'Hypernetwork nodes'
+        non_hypntwk_nodes = self.node_ranges.mapping.loc[fltr]
         non_hypntwk_nodes = self.nodes.loc[non_hypntwk_nodes.index].index
         base_links = links.loc[
             (links[fromnode_col].isin(non_hypntwk_nodes)) & 
@@ -1493,7 +1494,9 @@ class Network(object):
             ):
             raise RuntimeError(
                 'Non base-to-hypernetwork transfer links were not '
-                'merged in links to base_network links merge.')
+                'merged in links to base_network links merge. ' \
+                'This could be due to an incorrect hyper-network node range ' \
+                'in the config file.')
         # Need to find the base nodes in these cases. Note that if there are
         # 3+ layers in the hypernetwork, then there are links where neither
         # their I or J nodes are in the network

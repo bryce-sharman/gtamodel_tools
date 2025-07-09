@@ -3,23 +3,29 @@ import geopandas as gpd
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
-from typing import Dict, List, Type
+from typing import Dict, Hashable, List
 
 class SpatialAggregator(ABC):
     @abstractmethod
     def __init__(self):
         pass
-
+    
+    @property
     @abstractmethod
-    def __call__(self) -> pd.Series:
+    def mapping(self) -> pd.Series:
         """ Returns pandas series of the mapping from zones to regions. """
         pass
-
+    @property
     @abstractmethod
-    def unique_regions(self) -> np.array:
+    def unique_regions(self) -> np.ndarray:
         """ Returns sorted array of the spatial aggregation regions. """
         pass
 
+    @property
+    @abstractmethod
+    def name(self) -> Hashable:
+        """ Returns the spatial aggregator name."""
+        pass
 class ModelRegionSpatialAggregator(SpatialAggregator):
     REGION_ID = "model_region"
     def __init__(self, name, ids, **_unused):
@@ -31,15 +37,16 @@ class ModelRegionSpatialAggregator(SpatialAggregator):
         index = pd.Index(ids, dtype=np.uint32)
         self._spatial_aggregation = pd.Series(
             index=index, data=self.REGION_ID, name=name)
-
-    def __call__(self) -> pd.Series:
+        
+    @property
+    def mapping(self) -> pd.Series:
         return self._spatial_aggregation
-    
-    def unique_regions(self) -> np.array:
+    @property
+    def unique_regions(self) -> np.ndarray:
         return np.sort(np.array([self.REGION_ID]))
     
     @property
-    def name(self):
+    def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
 class OneLevelMappingSpatialAggregator(SpatialAggregator):
@@ -53,15 +60,17 @@ class OneLevelMappingSpatialAggregator(SpatialAggregator):
         self._spatial_aggregation = pd.Series(lvl1_mapping)
         self._spatial_aggregation.name = name
 
-    def __call__(self) -> pd.Series:
+    @property
+    def mapping(self) -> pd.Series:
         return self._spatial_aggregation
-
-    def unique_regions(self) -> np.array:
+    
+    @property
+    def unique_regions(self) -> np.ndarray:
         unique = self._spatial_aggregation.unique()
         return np.sort(unique)
     
     @property
-    def name(self):
+    def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
 class TwoLevelMappingSpatialAggregator(SpatialAggregator):
@@ -79,15 +88,17 @@ class TwoLevelMappingSpatialAggregator(SpatialAggregator):
         s2.name = name
         self._spatial_aggregation = s2
 
-    def __call__(self) -> pd.Series:
+    @property
+    def mapping(self) -> pd.Series:
         return self._spatial_aggregation
-    
-    def unique_regions(self) -> np.array:
+
+    @property
+    def unique_regions(self) -> np.ndarray:
         unique = self._spatial_aggregation.unique()
         return np.sort(unique)
     
     @property
-    def name(self):
+    def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
 class CustomRangesSpatialAggregator(SpatialAggregator):
@@ -107,29 +118,33 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
             s.loc[fltr] = r_label
         self._spatial_aggregation = s
 
-    def __call__(self) -> pd.Series:
+    @property
+    def mapping(self) -> pd.Series:
         return self._spatial_aggregation
     
-    def unique_regions(self) -> np.array:
+    @property
+    def unique_regions(self) -> np.ndarray:
         unique = self._spatial_aggregation.unique()
         return np.sort(unique)
     
     @property
-    def name(self):
+    def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
 class ShapefileSpatialAggregator(SpatialAggregator):
     def __init__(self, name, geoms, region_shp, region_colname, **_unused):
         NotImplementedError("Not quite ready yet. ")
 
-    def __call__(self):
-        raise NotImplementedError("Not quite ready yet. ")
-    
-    def unique_regions(self):
+    @property
+    def mapping(self) -> pd.Series:
         raise NotImplementedError("Not quite ready yet. ")
     
     @property
-    def name(self):
+    def unique_regions(self) -> np.ndarray:
+        raise NotImplementedError("Not quite ready yet. ")
+    
+    @property
+    def name(self) -> Hashable:
         raise NotImplementedError("Not quite ready yet. ")
 
 spatial_aggregators = {
@@ -143,14 +158,14 @@ spatial_aggregators = {
 def create_spatial_aggregator(
         aggregation_type: str, 
         name: str, 
-        ids: pd.Series | pd.Index | List = None, 
+        ids: pd.Series | pd.Index | List | None = None, 
         lvl1_mapping: Dict | pd.Series | None = None, 
         lvl2_mapping: Dict | pd.Series | None = None, 
         ranges: List | None = None, 
         geoms: gpd.GeoSeries | None = None, 
         region_shp: gpd.GeoDataFrame | None = None, 
         region_colname: str | None = None,
-        ) -> Type[SpatialAggregator]:
+        ) -> type[SpatialAggregator]:
     """ Creates a spatial aggregator. 
     
     Args:
@@ -204,16 +219,15 @@ def create_spatial_aggregator(
               region_colname=region_colname
     )
 
-
 def summarize_table_with_spatial_aggregation(    
         df: pd.DataFrame,
         values: str | List[str],
         geom_id: str | List[str],
-        spatial_aggregations: Type[SpatialAggregator] | List[
-            Type[SpatialAggregator] | None | False] | None, 
+        spatial_aggregations: type[SpatialAggregator] | None | bool | List[
+            type[SpatialAggregator] | None | bool] , 
         crosstabs: str | List[str] | None = None,
         crosstab_segments: Dict | List[Dict] | None = None
-    ) -> pd.DataFrame:
+    ) -> pd.DataFrame | pd.Series:
     """ Applies creates summary for table given spatial aggrgations(s).
 
     Args:
@@ -250,14 +264,15 @@ def summarize_table_with_spatial_aggregation(
         raise ValueError("Number of zones columns and spatial_aggregation "
                          "defintions must match."
     )
-        
     if crosstabs is not None:
         crosstabs = crosstabs if isinstance(crosstabs, list) else [crosstabs]
+    if crosstab_segments is not None:
         crosstab_segments = crosstab_segments if isinstance(
             crosstab_segments, list) else [crosstab_segments]
-        if not len(crosstabs) == len(crosstab_segments):
-            raise ValueError("Number of crosstabs columns and "
-                             "crosstab_segments must match.")
+    if crosstabs is not None and crosstab_segments is not None and \
+            len(crosstabs) != len(crosstab_segments):
+        raise ValueError("Number of crosstabs columns and "
+                        "crosstab_segments must match.")
     df = df.copy()  # to not mess with input DataFrame                
     aggr_colnames = []
     i = 1
@@ -266,22 +281,32 @@ def summarize_table_with_spatial_aggregation(
             continue
         elif sa is None:
             aggr_colnames.append(zn)
-        else:
+        elif isinstance(sa, SpatialAggregator):
             if not sa.name in df.columns:
-                df = df.merge(sa(), how="inner", left_on=zn, right_index=True)
+                df = df.merge(
+                    sa.mapping, how="inner", left_on=zn, right_index=True)
                 aggr_colnames.append(sa.name)
             else:
-                df = df.merge(sa(), how="inner", left_on=zn, right_index=True, 
-                              suffixes=["", f"_{i}"]
+                df = df.merge(
+                    sa.mapping,
+                    how="inner", 
+                    left_on=zn, 
+                    right_index=True, 
+                    suffixes=["", f"_{i}"]
                 )
                 aggr_colnames.append(f"{sa.name}_{i}")
                 i = i + 1
 
     if crosstabs is not None:
-        for ct, cts in zip(crosstabs, crosstab_segments):
-            if cts is not None:
-                df[ct] = df[ct].map(cts)
-            aggr_colnames.append(ct)
+        if crosstab_segments is not None:
+            # Extend using crosstab_segments
+            for ct, cts in zip(crosstabs, crosstab_segments):
+                if cts is not None:
+                    df[ct] = df[ct].map(cts)
+                aggr_colnames.append(ct)
+        else:
+            # Extend using the different crosstab values
+            aggr_colnames.extend(crosstabs)
 
     if not isinstance(values, list):
         # Summarizing a single variable or expression
@@ -308,4 +333,38 @@ def summarize_table_with_spatial_aggregation(
                             observed=True
         )
         pt.columns = values
+
+    if pt.index.nlevels > 1:
+        pt = pt.unstack(fill_value=0)
+        pt.columns = pt.columns.droplevel(0)
     return pt
+
+def create_integer_crosstab_segment_dict(
+        min_value: int, 
+        max_separate_value: int, 
+        max_value: int, 
+        prefix: str='',
+        suffix: str=''
+    ) -> Dict:
+    """ Create a crosstab_segmentation dictionary for integer values.
+    
+    Args:
+        min_value: int
+            Minimum value to include
+        max_separate_value: int
+            Maximum value that is enumerated separately. Anything beyond
+            this is placed into a single category.
+        max_value: int, 
+            Maximum value to include in the dictionary.
+        prefix: str
+            Text to add to the start of the category name
+        suffix: str
+            Text to add to the end of the category name
+
+    """
+    d = {}
+    for i in range(min_value, max_separate_value+1):
+        d[i] = f'{prefix}{i}{suffix}'
+    for i in range(max_separate_value+1, max_value + 1):
+        d[i] = f'{prefix}{max_separate_value + 1}+{suffix}'
+    return d
