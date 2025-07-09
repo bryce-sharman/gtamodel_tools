@@ -139,3 +139,10 @@ class TripMode(StrEnum):
 class TransitDirection(StrEnum):
     AUTO_TO_TRANSIT = "auto2transit"
     TRANSIT_TO_AUTO = "transit2auto"
+
+class AgeCategories(StrEnum):
+    AGE  = 'age'
+    STATCAN_5 = 'statcan_5'
+    FIVE_YR_INCREMENTS = '5yr_increments'
+    GTA_MODEL = 'gtamodel'
+    GTA_MODEL_3 = 'gtamodel_3'

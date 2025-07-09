@@ -223,8 +223,8 @@ def summarize_table_with_spatial_aggregation(
         df: pd.DataFrame,
         values: str | List[str],
         geom_id: str | List[str],
-        spatial_aggregations: type[SpatialAggregator] | List[
-            type[SpatialAggregator] | None | bool] | None, 
+        spatial_aggregations: type[SpatialAggregator] | None | bool | List[
+            type[SpatialAggregator] | None | bool] , 
         crosstabs: str | List[str] | None = None,
         crosstab_segments: Dict | List[Dict] | None = None
     ) -> pd.DataFrame | pd.Series:

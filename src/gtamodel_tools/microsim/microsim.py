@@ -1,13 +1,14 @@
+from importlib.resources import files
 import numpy as np
+from numpy.typing import NDArray
 import pandas as pd
-
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from gtamodel_tools.config import Config
 import gtamodel_tools.common.data as data
 import gtamodel_tools.common.spatial_aggregator as sa
 import gtamodel_tools.enums.microsim as ems
-
+from gtamodel_tools.matrix.matrix import Matrix
 
 
 class MicroSim():
@@ -254,7 +255,8 @@ class MicroSim():
 #region Summarize methods
     def summarize_hhld_totals(
             self, 
-            home_sa: Type[sa.SpatialAggregator],
+            home_sa: Type[sa.SpatialAggregator] | None,
+            *,
             hhld_fltr_expr: Optional[str] = None
         ) -> pd.DataFrame:
         """ 
@@ -262,7 +264,8 @@ class MicroSim():
         average household size. 
         
         Args:
-            home_sa: Spatial aggregation on home zone. 
+            home_sa: Spatial aggregation on home zone. If None, then will
+                output at the zone level.
             hhld_fltr_expr: filter expression, will be used by pandas.eval to 
                 filter household data using their attributes. If None then no 
                 filter is applied using household attributes.
@@ -284,14 +287,16 @@ class MicroSim():
 
     def summarize_hhlds_by_income_cat(
             self, 
-            home_sa: Type[sa.SpatialAggregator],
+            home_sa: Type[sa.SpatialAggregator] | None,
+            *,
             hhld_fltr_expr: Optional[str] = None
         ) -> pd.DataFrame:
         """ 
         Summarize the total number of households by income category. 
         
         Args:
-            home_sa: Spatial aggregation on home zone. 
+            home_sa: Spatial aggregation on home zone. If None, then will
+                output at the zone level.
             hhld_fltr_expr: filter expression, will be used by pandas.eval to 
                 filter household data using their attributes. If None then no 
                 filter is applied using household attributes.
@@ -313,7 +318,8 @@ class MicroSim():
 
     def summarize_hhlds_by_npersons(
             self, 
-            home_sa: Type[sa.SpatialAggregator],
+            home_sa: Type[sa.SpatialAggregator] | None,
+            *,
             hhld_fltr_expr: Optional[str] = None,
             combine_above: int=98
         ) -> pd.DataFrame:
@@ -321,7 +327,8 @@ class MicroSim():
         Summarize the total number of households by number of persons.
         
         Args:
-            home_sa: Spatial aggregation on home zone. 
+            home_sa: Spatial aggregation on home zone. If None, then will
+                output at the zone level.
             hhld_fltr_expr: filter expression, will be used by pandas.eval to 
                 filter household data using their attributes. If None then no 
                 filter is applied using household attributes.
@@ -345,7 +352,8 @@ class MicroSim():
 
     def summarize_hhlds_by_nvehicles(
             self,
-            home_sa: type[sa.SpatialAggregator],
+            home_sa: type[sa.SpatialAggregator] | None,
+            *,
             hhld_fltr_expr: Optional[str] = None,
             combine_above: int=98
         ) -> pd.DataFrame:
@@ -354,7 +362,8 @@ class MicroSim():
         Also include the total number of vehicles.
         
         Args:
-            home_sa: Spatial aggregation on home zone. 
+            home_sa: Spatial aggregation on home zone. If None, then will
+                output at the zone level.
             hhld_fltr_expr: filter expression, will be used by pandas.eval to 
                 filter household data using their attributes. If None then no 
                 filter is applied using household attributes.
@@ -383,8 +392,9 @@ class MicroSim():
 
     def summarize_households_custom(
             self,
-            home_sa: Type[sa.SpatialAggregator],
+            home_sa: Type[sa.SpatialAggregator] | None,
             weight_expr: str = ems.WEIGHT,
+            *,
             crosstabs: str | List[str] | None = None,
             crosstab_segments: Dict | List[Dict] | None = None,
             hhld_fltr_expr: Optional[str] = None,
@@ -394,7 +404,8 @@ class MicroSim():
         optional filters.
         
         Args:
-            home_sa: Spatial aggregation on home zone. 
+            home_sa: Spatial aggregation on home zone. If None, then will
+                output at the zone level.
             weight_expr: Value to be aggregated. This is an expression that 
                 will be evaluatated using pandas .eval.
             crosstabs: column or list of columns to be used to used create 
@@ -415,12 +426,192 @@ class MicroSim():
             crosstabs, crosstab_segments
         )
 
+    def summarize_person_totals(
+            self,
+            aggregate_at: str,
+            pers_sa: Type[sa.SpatialAggregator] | None,
+            *,
+            hhld_fltr_expr: Optional[str] = None,
+            pers_fltr_expr: Optional[str] = None,
+        ) -> pd.DataFrame | pd.Series:
+        """ Spatially aggregates number of synthetic persons.
+
+        Args:
+            aggregate_at: str
+                Aggregation location. Must be one of:
+                    'por': place of residence
+                    'pow': place of work
+                    'pos': place of school
+            pers_sa: Spatial aggregation.  
+            hhld_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter household data using their attributes. If None then no 
+                filter is applied using household attributes.
+            pers_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter persons data using their attributes. If None then no 
+                filter is applied using persons attributes.
+        Returns:
+            pandas.DataFrame with the summary data.
+        """
+        merge_hhlds=False
+        if aggregate_at == 'por':
+            zone_col = ems.HhldFields.HOME_ZONE.value
+            merge_hhlds=True
+        elif aggregate_at == 'pow':
+            zone_col = ems.PersFields.WORK_ZONE.value
+        elif aggregate_at == 'pos':
+            zone_col = ems.PersFields.SCHOOL_ZONE.value
+        else:
+            raise ValueError("aggregate_at must be one of 'por', 'pow', 'pos'")
+        if hhld_fltr_expr is not None:
+            merge_hhlds=True
+            
+        pers_df = data.apply_dataframe_filter(self.persons, pers_fltr_expr)
+        if merge_hhlds:
+            hhlds_df = data.apply_dataframe_filter(
+                self.households, hhld_fltr_expr)
+            hhlds_df = hhlds_df.drop(ems.WEIGHT, axis=1)
+            pers_df = pers_df.merge(hhlds_df, how="inner", on=ems.HHLD_ID)
+        pt = sa.summarize_table_with_spatial_aggregation(
+            pers_df, '1', zone_col, pers_sa)
+        pt.columns=[f'n_persons_{aggregate_at}']
+        return pt
+
+    def summarize_persons_by_agecat(
+            self,
+            aggregate_at: str,
+            pers_sa: Type[sa.SpatialAggregator] | None,
+            age_categories: str,
+            *,
+            hhld_fltr_expr: Optional[str] = None,
+            pers_fltr_expr: Optional[str] = None,
+        ) -> pd.DataFrame | pd.Series:
+        """ Spatially aggregates synthetic persons, by age category.
+
+        Args:
+            aggregate_at: str
+                Aggregation location. Must be one of:
+                    'por': place of residence
+                    'pow': place of work
+                    'pos': place of school
+            pers_sa: Spatial aggregation.  
+            age_categories: str
+                One of
+                - 'statcan_5': [0-17, 18-34, 35-44, 45-64, 65+]
+                - '5yr_increments': [0-4, 5-9, ..., 95-99, 100+]
+                - 'gtamodel': [0-4, 5-9, 10-14, 15-16, 17-19, 20-24, 25-29,
+                    30-34, 35-39, 40-44, 45-54, 55-64, 65-79, 80+]
+                - 'gtamodel_3': [0-17, 18-64, 65+]
+            hhld_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter household data using their attributes. If None then no 
+                filter is applied using household attributes.
+            pers_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter persons data using their attributes. If None then no 
+                filter is applied using persons attributes.
+        Returns:
+            pandas.DataFrame with the summary data.
+        """
+        allowable_age_cats = [ac.value for ac in ems.AgeCategories]
+        allowable_age_cats.remove(ems.AgeCategories.AGE.value)
+        if age_categories not in allowable_age_cats:
+            raise ValueError(
+                f"age_categories must be one of {allowable_age_cats}")
+        
+        merge_hhlds=False
+        if aggregate_at == 'por':
+            zone_col = ems.HhldFields.HOME_ZONE.value
+            merge_hhlds=True
+        elif aggregate_at == 'pow':
+            zone_col = ems.PersFields.WORK_ZONE.value
+        elif aggregate_at == 'pos':
+            zone_col = ems.PersFields.SCHOOL_ZONE.value
+        else:
+            raise ValueError("aggregate_at must be one of 'por', 'pow', 'pos'")
+        if hhld_fltr_expr is not None:
+            merge_hhlds=True
+        agecats_df = pd.read_csv(
+            files('gtamodel_tools.enums').joinpath('age_categories.csv'),
+            index_col='age'
+        )
+
+        pers_df = data.apply_dataframe_filter(self.persons, pers_fltr_expr)
+        if merge_hhlds:
+            hhlds_df = data.apply_dataframe_filter(
+                self.households, hhld_fltr_expr)
+            hhlds_df = hhlds_df.drop(ems.WEIGHT, axis=1)
+            pers_df = pers_df.merge(hhlds_df, how="inner", on=ems.HHLD_ID)
+        pers_df['age_cat'] = pers_df[ems.PersFields.AGE.value].map(
+            agecats_df[age_categories])
+
+        ct_segs = {}
+        for unique in pers_df['age_cat'].unique():
+            ct_segs[unique] = f'age_{unique}_{aggregate_at}'
+        pt = sa.summarize_table_with_spatial_aggregation(
+            pers_df, '1', zone_col, pers_sa, crosstabs='age_cat', crosstab_segments=ct_segs)
+        return pt
+
+    def summarize_persons_by_empstatus_and_occup(
+            self,
+            aggregate_at: str,
+            pers_sa: Type[sa.SpatialAggregator] | None,
+            *,
+            hhld_fltr_expr: Optional[str] = None,
+            pers_fltr_expr: Optional[str] = None,
+        ) -> pd.DataFrame | pd.Series:
+        """ Spatially aggregates synthetic persons, by age category.
+
+        Args:
+            aggregate_at: str
+                Aggregation location. Must be one of:
+                    'por': place of residence
+                    'pow': place of work
+                    'pos': place of school
+            pers_sa: Spatial aggregation.  
+            hhld_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter household data using their attributes. If None then no 
+                filter is applied using household attributes.
+            pers_fltr_expr: filter expression, will be used by pandas.eval to 
+                filter persons data using their attributes. If None then no 
+                filter is applied using persons attributes.
+        Returns:
+            pandas.DataFrame with the summary data.
+        """        
+        merge_hhlds=False
+        if aggregate_at == 'por':
+            zone_col = ems.HhldFields.HOME_ZONE.value
+            merge_hhlds=True
+        elif aggregate_at == 'pow':
+            zone_col = ems.PersFields.WORK_ZONE.value
+        elif aggregate_at == 'pos':
+            zone_col = ems.PersFields.SCHOOL_ZONE.value
+        else:
+            raise ValueError("aggregate_at must be one of 'por', 'pow', 'pos'")
+        if hhld_fltr_expr is not None:
+            merge_hhlds=True
+
+        pers_df = data.apply_dataframe_filter(self.persons, pers_fltr_expr)
+        if merge_hhlds:
+            hhlds_df = data.apply_dataframe_filter(
+                self.households, hhld_fltr_expr)
+            hhlds_df = hhlds_df.drop(ems.WEIGHT, axis=1)
+            pers_df = pers_df.merge(hhlds_df, how="inner", on=ems.HHLD_ID)
+        pers_df['comb_emp_status'] = pers_df[
+            'employment_status'].str.cat(pers_df['occupation'], sep='_')
+
+        unique_comb = pers_df['comb_emp_status'].unique()
+        ct_segs = {}
+        for uc in unique_comb:
+            ct_segs[uc] = f'empst_{uc}_{aggregate_at}'
+        pt = sa.summarize_table_with_spatial_aggregation(
+            pers_df, '1', zone_col, pers_sa, 'comb_emp_status', ct_segs)
+        return pt
+
     def summarize_persons_custom(
             self,
             home_sa: Type[sa.SpatialAggregator] | bool = False,
             work_sa: Type[sa.SpatialAggregator] | bool = False,
             school_sa: Type[sa.SpatialAggregator] | bool = False,
             weight_expr: str = ems.WEIGHT,
+            *,
             crosstabs: str | List[str] | None = None,
             crosstab_segments: Dict | List[Dict] | None = None,
             hhld_fltr_expr: Optional[str] = None,
@@ -505,6 +696,110 @@ class MicroSim():
             crosstab_segments=crosstab_segments
         )
 
+    def calculate_trip_tlfd(
+            self,
+            matrix: Matrix,
+            time_period: str | None=None,
+            bins=10,
+            *,
+            households_filter_expr: str | None=None,
+            persons_filter_expr: str | None=None,
+            trips_filter_expr: str | None=None,
+            tripmodes_filter_expr: str | None=None
+            ) -> Tuple[NDArray[np.uint64], NDArray[np.float64]]:
+        """ Spatially aggregates trips by mode, allowing optional filters. 
+    
+            Args:
+            time_period: str or None:
+                Optional filter for time period. If defined (is not None)
+                then must be one of ['AM', 'MD', 'PM', 'EE', 'LE']
+            matrix: Matrix
+                Skim matrix used to compute distances
+            bins: Histogram bins,
+                Histogram bins, passed into numpy.histogram
+                Default is 10.
+            households_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            persons_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            trips_filter_expr: str or None
+                Optional filter expression on households table. If defined
+                this is applies attribute filter using pandas.eval.
+            tripmodes_filter_expr: str or None
+                Optional filter expression on trip_modes table. If defined
+                this is applies attribute filter using pandas.eval. Note that
+                the 'time_period' argument is the preferred way of 
+                identifying trips by default GTAModel time periods.
+    
+            Returns:
+                ntrips: numpy.ndarray.uint64
+                    Number of trips in each bin. See numpy.histogram for more
+                    details.
+                bin_edges: numpy.ndarray.float64
+                    Bin edges for the histogram. See numpy.histogram for more
+                    details. Note that bin_edges will contain one more element 
+                    than ntrips.
+
+        """
+        final_weight_col = 'FINALWEIGHT'
+        if time_period is not None:
+            if time_period not in self.time_periods:
+                raise AttributeError(
+                    "Invalid time period. If defined, must be one of: "
+                    f"{list(self.time_periods.keys())}")
+            tripmodes_filter_expr = self._add_timeperiod_to_tripmodes_filter(
+                time_period, tripmodes_filter_expr)
+        trips = data.apply_dataframe_filter(
+            self.trips.reset_index(), trips_filter_expr)
+        if tripmodes_filter_expr:
+            suffixes = '_tm', '_t'
+            tripmodes = data.apply_dataframe_filter(
+                self.tripmodes.reset_index(), tripmodes_filter_expr)
+            trips_with_modes = tripmodes.reset_index().merge(
+                trips, 
+                how='inner',
+                on=[ems.HHLD_ID, ems.PERS_ID, ems.TRIP_ID],
+                suffixes=suffixes
+            )
+            trips_with_modes[final_weight_col] = \
+                trips_with_modes[ems.WEIGHT + suffixes[0]] \
+                * trips_with_modes[ems.WEIGHT + suffixes[1]]
+            tripweights = trips_with_modes.groupby(
+                [ems.HHLD_ID, ems.PERS_ID, ems.TRIP_ID]
+            )[[final_weight_col]].sum().divide(
+                self.microsim_tripmode_nsamples)
+            trips = trips.merge(
+                tripweights, 
+                left_on=[ems.HHLD_ID, ems.PERS_ID, ems.TRIP_ID], 
+                right_index=True
+            )
+            trips[ems.WEIGHT] = trips[final_weight_col]
+            trips = trips.drop(final_weight_col, axis=1)
+
+        # If a households or persons filter is applied, filter table and merge  
+        # into tripmodes table.
+        if isinstance(households_filter_expr, str):
+            households_df = data.apply_dataframe_filter(
+                self.households, households_filter_expr)
+            fltr = trips[ems.HHLD_ID].isin(households_df.index)
+            trips = trips.loc[fltr]
+        if isinstance(persons_filter_expr, str):
+            persons_df = data.apply_dataframe_filter(
+                self.persons, persons_filter_expr).reset_index()
+            fltr = (
+                trips[ems.HHLD_ID].isin(persons_df[ems.HHLD_ID])) & (
+                trips[ems.PERS_ID].isin(persons_df[ems.PERS_ID]))
+            trips = trips.loc[fltr]
+        # Merge in matrix skim and calculate histogram
+        trips = trips.merge(
+            matrix.tall, 
+            left_on=[ems.TripFields.O_ZONE.value, ems.TripFields.D_ZONE.value],
+            right_index=True
+        )
+        ntrips, bin_edges = np.histogram(trips[matrix.name], bins=bins)
+        return ntrips, bin_edges
 
     def summarize_trips_by_mode(
             self,

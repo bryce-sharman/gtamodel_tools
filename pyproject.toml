@@ -33,4 +33,10 @@ addopts = "-ra -q -s"
 testpaths = [
     "tests"
 ]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mypkg = ["*.csv"]
+
 keywords = ["GTAModel", "TMG"]

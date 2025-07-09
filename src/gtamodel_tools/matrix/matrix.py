@@ -3,7 +3,8 @@ from __future__ import annotations
 from os import PathLike
 import numpy as np
 import pandas as pd
-from typing import Hashable
+from pathlib import Path
+from typing import Hashable, Iterable, Union
 
 import gtamodel_tools.common.spatial_aggregator as sa
 
@@ -46,11 +47,55 @@ class Matrix(object):
         m = self._matrix.unstack()
         m.columns = m.columns.droplevel(0)
         return m
+    
+#region Operators
+    def add(self, m: Matrix | float) -> Matrix:
+        if isinstance(m, Matrix):
+            return Matrix(self._matrix.add(m._matrix))
+        else:
+            # Use pandas addition directly
+            return Matrix(self._matrix.add(m))
+        
+    def subtract(self, m: Matrix) -> Matrix:
+        if isinstance(m, Matrix):
+            return Matrix(self._matrix.subtract(m._matrix))
+        else:
+            # Use pandas subtraction directly
+            return Matrix(self._matrix.subtract(m))
+        
+    
+    def multiply(self, m: Matrix) -> Matrix:
+        if isinstance(m, Matrix):
+            return Matrix(self._matrix.multiply(m._matrix))
+        else:
+            # Use pandas multiplication directly
+            return Matrix(self._matrix.multiply(m))
+        
+    def divide(self, m: Matrix) -> Matrix:
+        if isinstance(m, Matrix):
+            return Matrix(self._matrix.divide(m._matrix))
+        else:
+            # Use pandas division directly
+            return Matrix(self._matrix.divide(m))
+
+    def __add__(self, m: Matrix) -> Matrix:
+        return self.add(m)
+    
+    def __sub__(self, m: Matrix) -> Matrix:
+        return self.subtract(m)
+    
+    def __mul__(self, m: Matrix) -> Matrix:
+        return self.multiply(m) 
+
+    def __truediv__(self, m: Matrix) -> Matrix: 
+        return self.divide(m)
+
 #endregion
 
 #region Read from File
     @classmethod
-    def from_emme_mdf(cls, filepath: PathLike, name: Hashable='matrix') -> Matrix:
+    def from_emme_mdf(
+            cls, filepath: PathLike, name: Hashable='matrix') -> Matrix:
         """
         Reads two-dimensional matrix from Emme's official matrix "binary 
         serialization" format.
@@ -60,7 +105,7 @@ class Matrix(object):
         '.emxd' is also sometimes encountered.
 
         Args:
-            file (str | FileIO | Path): 
+            file: PathLike
                 The file to read.
             name: str
                 Name to apply to the matrix. Default is 'matrix'
@@ -92,12 +137,90 @@ class Matrix(object):
         columns = pd.Index(index_list[1], name=cls.DEST_COL)
         df = pd.DataFrame(matrix, index=index, columns=columns)
         s = df.stack()
-        s = pd.Series(index=s.index, data=s.data, name = name)
+        s = pd.Series(index=s.index, data=s.to_numpy(), name = name)
         return cls(s)
 
     @classmethod
-    def from_emme_emx(cls, filepath: PathLike, name: str='matrix') -> Matrix:
+    def from_emme_emx(cls, file: PathLike, 
+             *, 
+             zones: Union[int, Iterable[int], pd.Index, None] = None,
+             tall: bool = False
+        ) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
+        """Reads an "internal" Emme matrix.
+        
+        These files are found in `<Emme Project>/Database/emmemat` with an '.emx' 
+        extension. This data format does not contain information about zones. 
+        Its size is determined by the dimensions of the Emmebank 
+        (``Emmebank.dimensions['centroids']``), 
+        regardless of the number of zones actually used in all scenarios.
+
+        Args:
+            file: PathLike 
+                The file to read.
+            zones (int | Iterable[int] | pandas.Index, optional): 
+                An Index or Iterable will be interpreted as the zone labels for the 
+                matrix rows and columns; returning a DataFrame or Series (depending
+                on ``tall``). If an integer is provided, the returned ndarray will 
+                be truncated to this 'number of zones'. Otherwise, the returned 
+                ndarray will be size to the maximum number of zone dimensioned by 
+                the Emmebank. Defaults to ``None``. 
+            tall (bool, optional): If True, a 1D data structure will be returned. 
+                If ``zone_index`` is provided, a Series will be returned, otherwise 
+                a 1D ndarray. Defaults to ``False``. 
+
+        Returns:
+            numpy.ndarray, pandas.DataFrame, or pandas.Series.
+
+        Examples:
+            For a project with 20 zones:
+
+            >>> matrix = read_emx("Database/emmemat/mf1.emx")
+            >>> print type(matrix), matrix.shape
+            (numpy.ndarray, (20, 20))
+
+            >>> matrix = read_emx("Database/emmemat/mf1.emx", zones=10)
+            >>> print type(matrix), matrix.shape
+            (numpy.ndarray, (10, 10))
+
+            >>> matrix = read_emx("Database/emmemat/mf1.emx", zones=range(10))
+            >>> print type(matrix), matrix.shape
+            <class 'pandas.core.frame.DataFrame'> (10, 10)
+
+            >>> matrix = read_emx("Database/emmemat/mf1.emx", zones=range(10), tall=True)
+            >>> print type(matrix), matrix.shape
+            <class 'pandas.core.series.Series'> 100
+
+        """
         raise NotImplementedError("Read from Emme .emx not yet implemented.")
+        # with open(file, mode='rb') as reader:
+        #     data = np.fromfile(reader, dtype=np.float32)
+
+        #     n = int(len(data) ** 0.5)
+        #     assert len(data) == n ** 2
+
+        #     if zones is None and tall:
+        #         return data
+
+        #     data.shape = n, n
+
+        #     if isinstance(zones, (int, np.int_)):
+        #         data = data[:zones, :zones]
+
+        #         if tall:
+        #             data.shape = zones * zones
+        #             return data
+        #         return data
+        #     elif zones is None:
+        #         return data
+
+        #     zones = pd.Index(zones)
+        #     n = len(zones)
+        #     data = data[:n, :n]
+
+        #     matrix = pd.DataFrame(data, index=zones, columns=zones)
+
+        #     return matrix.stack() if tall else matrix
+
 
     @classmethod
     def from_csv(cls, filepath: PathLike, name: str='matrix') -> Matrix:
@@ -123,7 +246,7 @@ class Matrix(object):
         is recommended.
 
         Args:
-            file (str | FileIO | Path): 
+            file:  PathLike 
                 The path or file handler to write to.
         """
         print("Matrix.to_mdf() is not yet tested, use with caution.")
@@ -145,9 +268,9 @@ class Matrix(object):
         order for the file to be written correctly.
 
         Args:
-            file (str | FileIO | Path): 
+            file: PathLike 
                 The path or file handler to write to.
-            emmebank_zones (int): 
+            emmebank_zones: int
                 The number of zones the target Emmebank is dimensioned for.
         """
         print("Matrix.to_to_emx() is not yet tested, use with caution.")
