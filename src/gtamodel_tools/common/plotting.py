@@ -23,7 +23,7 @@ def plot_line_profiles(
 
     Args:
         line_profiles:
-            Produced from Network.calculate_line_profiles_from_config
+            Produced from Network.calculate_line_profiles
         fp:
             Filepath for exported image.
         figsize: tuple(float) 
@@ -166,5 +166,74 @@ def plot_tlfds(fp, *args):
     ax.set_ylabel('Number of trips', fontsize=12)
     ax.set_xlabel('Distance', fontsize=12)
     ax.set_title('Trip Length Frequecy Distribution')
+    fig.savefig(fp)
+    fig.clf()
+
+
+def plot_annual_boardings_validation(
+        model_boardings: pd.Series, 
+        reference_boardings: pd.Series,
+        fp: PathLike,
+        *,
+        figsize: Tuple=(8, 5),
+        fontsize=12.0,
+        titlefontsize=16.0
+) -> None:
+    """ Validates (daily) model boardings vs annual reference boardings.
+
+    This validation is not clear-cut given that there is no expected ratio
+    of annual to daily boardings. Hence this function plots this ratio in
+    comparison to the following cases:
+        a. even boardings every day of the week (365)
+        b. even boardings on all weekdays, none on a weekend(261)
+        c. even boardings on 3 days per week, none on any other day (156)
+        d. even boardings on w days per week, none on any other day (104)
+
+    Args:
+        model_boardings: pandas.Series
+            Aggregated daily model boardings
+        reference_boardings: pandas.Series
+            Aggregated annual model boardings. 
+        fp: Filepath in which to save final plot
+        figsize: tuple(float) 
+            Width and height of individual profile plot. Default is (8, 10)
+        fontsize 
+            font size of tick labels and legend text
+        titlefontsize
+            font size of title
+
+    """
+    fig, ax = plt.subplots(
+        layout='constrained', figsize=figsize)
+    ratio = reference_boardings / model_boardings
+    npts = len(ratio)
+    ax.plot(ratio.index, ratio, linestyle='', marker='+')
+
+    xmax = ax.get_xlim()[1]
+    ax.set_xlim(0, xmax)
+    ref_lines = [
+            ['All days', 365], 
+            ['5 days/wk', 261], 
+            ['3 days/wk', 156], 
+            ['2 days/wk', 104]
+    ]
+    for a, b in ref_lines:
+        ax.plot(ratio.index, [b]*npts, linestyle=':', label=a)
+    ax.set_title(
+        f'Model Daily Boarding Validation to Annual Reference', 
+        fontsize=titlefontsize
+    )
+    
+    ax.set_ylabel('Number of Boardings', fontsize=12)
+    ax.set_title('Model Daily Boardings Validation vs Annual Count Data')
+
+    # Write x labels
+    for tick in ax.xaxis.get_majorticklabels():
+        tick.set_horizontalalignment("right")
+    ax.tick_params('x', rotation=45, labelsize=fontsize)
+    ax.tick_params('y', labelsize=fontsize)
+    ax.grid(axis='x')
+    ax.legend()
+
     fig.savefig(fp)
     fig.clf()
