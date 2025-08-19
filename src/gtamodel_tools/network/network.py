@@ -328,7 +328,7 @@ class Network(object):
             node_aggregation: Type[sa.SpatialAggregator] | None = None,
             aggregate_on_node: str | None = None,
             segment_by_linkclass: bool | None = None,
-        ):
+        ) -> float | pd.DataFrame:
         """ Calculate vehicle kilometers travelled.
 
         Arguments:
@@ -916,7 +916,7 @@ class Network(object):
                 "Transit peak-hour factor (transit_phf) must be defined "
                 "for an assigned network.")
         tsegs[capacity_col] = tsegs[self.tveh_totalcapacity_col] * \
-            self.transit_phf / tsegs[self.tline_headway_col]
+            self.transit_phf * 60.0 / tsegs[self.tline_headway_col]
 
         countposts_buffer = gpd.GeoDataFrame(
             index=countposts.index,
@@ -1579,7 +1579,7 @@ class Network(object):
         return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
 
     @property
-    def transit_vkt_expr(self) -> str:
+    def transit_pkt_expr(self) -> str:
         return f'{self.link_length_col} * {self.tsegments_volume_col}'
 
     @property

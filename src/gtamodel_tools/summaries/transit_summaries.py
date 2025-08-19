@@ -50,7 +50,7 @@ def summarize_transit_pkt_by_operator(
         return result
     else:
         return networks.summarize_transit_segments(
-        networks.tsegment_boardings_col, 
+        networks.transit_pkt_expr, 
         crosstab_columns=networks.toperator
     )
 
