@@ -1068,7 +1068,7 @@ class Network(object):
                             print('No transit line is a subset of the other, '
                                 'Cannot create joint line profile')
                             return None
-                        current = combine_lineprofiles(ex, new, how, suffixes)
+                    current = combine_lineprofiles(ex, new, how, suffixes)
                 line_profile = current
         if line_profile is None:
             return None
