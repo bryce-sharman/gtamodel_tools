@@ -44,6 +44,17 @@ class Config(object):
         # MicroSim results files, within the microsim directory
         self.microsim_filepaths = c['microsim_filenames']
 
+        # The demand directory holds auto and transit demand matrices
+        # by time period, and also the uses-TTC path-based analysis results.
+        self.demand_subdir = \
+            self.model_outputs_dir / c['demand_subdirectory']
+        
+        # The LOS directory holds cost and travel time matrices by time period.
+        # The station tranfer files are also stored here.
+        # Note that each time period has its own subdirectory.
+        self.los_subdir = \
+            self.model_outputs_dir / c['los_subdirectory']
+
         # Time period definitions
         # Start and end times are in minutes after midnight
         # Start times are inclusive; end times are exclusive
@@ -69,7 +80,7 @@ class Config(object):
         self.node_ranges = c.get('node_ranges')
         self.transit_operator_regexprs = c.get('transit_opererator_regexprs')
         self.line_profile_definitions = c.get('line_profile_definitions')
-
+        self.stn_transfer_regexprs = c.get('stn_transfer_regexprs')
         self.station_name_filepath = c.get('station_name_filepath')
         if self.station_name_filepath is not None:
             self.station_name_filepath = Path(self.station_name_filepath)
@@ -87,6 +98,8 @@ class Config(object):
             geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
             self.transit_countposts = gpd.GeoDataFrame(
                 index=cp_df.index, data=cp_df['modes'], geometry=geom, crs='EPSG:4326')
+            
+
 
         # Used to rename output columns to the GTAModel v4.1-v4.2 standard
         # Only needs to be defined if output columns don't match

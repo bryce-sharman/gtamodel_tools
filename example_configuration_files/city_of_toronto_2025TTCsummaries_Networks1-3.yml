@@ -31,9 +31,12 @@
 ###############################################################################
 
 # Network and microsimulation subdirectories
-model_outputs_subdirectory: Model Outputs
+# model_outputs_subdirectory: Model Outputs
 network_subdirectory: Networks
 microsim_subdirectory: MicroSim Results
+demand_subdirectory: Demand
+los_subdirectory: "LOS Matrices"
+
 
 # Filenames of files holding microsim results within the microsim subdirectory
 microsim_filenames:
@@ -182,9 +185,9 @@ node_ranges:
   External zones/gateways (US): {min: 95000, max: 96000}
   BRT/LRT platform: {min: 96000,max:  97000}
   Subway platform: {min:  97000, max: 98000}
-  GO Rail platform: {min:  98000, max: 99000}
-  Hypernetwork nodes: {min: 100000, max: 900000}
-  HOV: {min: 900000, max: 1000000}
+  Hypernetwork nodes: {min: 100000, max: 198000}
+  GO Rail platform: {min:  198000, max: 199000}
+  HOV: {min: 200000, max: 1000000}
 
 # The following provides regular expressions that can be used to identify
 # the operator from the transit line name. 
@@ -202,17 +205,12 @@ transit_opererator_regexprs:
   Hamilton: ^W
   YRT (not Viva): ^Y[0-9]
   YRT (Viva): ^YV
-  TTC (Subway): ^T00[1-4]   # matches T001*, T002*, T003*, T004*
-  TTC (LRT): ^T00[5-7]      # matches T005*, T006*, T007*
+  TTC (Subway): ^TS
+  TTC (LRT): ^T6    
   TTC (Streetcar): ^T5     
-  TTC (Night Bus): ^T3   
-  TTC (Express Bus): ^T9   
-  # the following line matches any TTC route not identified above
-  # the '|' character is a OR operator, matching any of the groups
-  # denoted in parentheses
-  TTC (bus): (^T[124678])|(^T0[1-9])|(^T00[89])
-  GO Bus: ^GB
-  GO Train: ^GT
+  TTC (bus): (^T[01234])
+  GO Bus: ^GB    
+  GO Rail: (^GT|T9)     # T9 is SmartTrack
   Link Train: ^L
 
 # Line profiles show the boardings, alightings and volumes along
@@ -222,38 +220,22 @@ transit_opererator_regexprs:
 # other (e.g. short turn). Branched routes are currently not implemented.
 line_profile_definitions:
   Line 1:
-    Vaughan_to_HighTech: [T001Aa, T001Ba]
-    HighTech_to_Vaughan: [T001Ab, T001Bb]
+    HighTech_to_Vaughan: TS01Aa
+    Vaughan_to_HighTech: TS01Bb
+    HighTech_to_Glencairn: TS01Ca
+    Glencairn_to_HighTech: TS01Db
   Line 2:
-    EB: [T002Aa, T002Ba]
-    WB: [T002Ab, T002Bb]
+    STC_to_Kipling: TS02Ab
+    Kipling_to_STC: TS02Ba
+    Kennedy_to_Kipling: TS02Db
+    Kipling_to_Kennedy: TS02Ha
   Line 3:
-    NB: T003Aa
-    SB: T003Ab   
+    NB: TS35Aa
+    SB: TS35Bb
   Line 4:
-    EB: T004Aa
-    WB: T004Ab
-  Line 5:
-    EB: [T005Aa, T005Ba]
-    WB: [T005Ab, T005Bb]
-  Line 6:
-    EB: T006Ab
-    WB: T006Aa
-  EELRT Kennedy-SheppardMcCowan:
-    Kennedy_to_SheppardMcCowan: T007Aa
-    SheppardMcCowan_to_Kennedy: T007Ab
-  EELRT Kennedy-Malvern:
-    Kennedy_to_Malvern: T007Ba
-    Malvern_to_Kennedy: T007Bb
-  EELRT Kennedy-UTSC:
-    Kennedy_to_UTSC: T007Ca
-    UTSC_to_Kennedy: T007Cb
-  EELRT SheppardMcCowan-Malvern:
-    SheppardMcCowan_to_Malvern: T007Db
-    Malvern_to_SheppardMcCowan: T007Da
-  Waterfront East LRT:
-    EB: T519Aa
-    WB: T519Ab
+    EB: TS04Aa
+    WB: TS04Bb
+
 
 # Station name file path.
 # Note that the station description file expects three columns:
@@ -444,6 +426,23 @@ transit_countposts:
     modes: [l]
     modes: [l]
    
+
+# The following provides regular expressions that can be used to identify
+# the lines of interest for the TTC-specific station transfer stations.
+# As a general note on regular expressions, a '^' beginning a string means
+# to look for a match at the start of the string (as opposed to anywhere
+# in the string). For example: ^D will match any string starting with the 
+# letter D.
+stn_transfer_regexprs:
+  Non_TTC_GO: ^[BDHMWYL]
+  TTC_Line1: ^TS01
+  TTC_Line2: ^TS02
+  TTC_Line4: ^TS04
+  TTC_Line5: ^TS05
+  TTC_Line6: ^TS06
+  TTC_Surface: ^T[0-9]
+  GO: ^G    
+
 
 ###############################################################################
 # Microsim configuration

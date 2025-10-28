@@ -132,20 +132,39 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
         return self._spatial_aggregation.name
 
 class ShapefileSpatialAggregator(SpatialAggregator):
-    def __init__(self, name, geoms, region_shp, region_colname, **_unused):
-        NotImplementedError("Not quite ready yet. ")
+    def __init__(self, name, points, areas, **_unused):
+        if not isinstance(points, gpd.GeoDataFrame) or not \
+                np.all(points.geom_type == 'Point'):
+            raise TypeError("points must be a Points geopandas.GeoDataFrame.")
+        if not isinstance(areas, gpd.GeoDataFrame) or not \
+                np.all(areas.geom_type.isin(['Polygon', 'MultiPolygon'])):
+            raise TypeError("points must be a Polygon geopandas.GeoDataFrame.")
+        if points.crs is None or areas.crs is None:
+            raise ValueError("Both points and areas must have a defined CRS.")
+        # Dont' mess with the original dataframes
+        points = points.copy()
+        areas = areas.copy()
+        # Perform the spatial join between points and areas
+        areas = areas.to_crs(points.crs)
+        areas.index.name = name
+        points2 = points.sjoin(areas, how='left')
+        if len(points2) > len(points):
+            points2 = points2.loc[~points2.index.duplicated(keep='first')]
+        self._spatial_aggregation = points2[name]
+        self._spatial_aggregation.name = name
 
     @property
     def mapping(self) -> pd.Series:
-        raise NotImplementedError("Not quite ready yet. ")
+        return self._spatial_aggregation
     
     @property
     def unique_regions(self) -> np.ndarray:
-        raise NotImplementedError("Not quite ready yet. ")
+        unique = self._spatial_aggregation.unique()
+        return np.sort(unique)
     
     @property
     def name(self) -> Hashable:
-        raise NotImplementedError("Not quite ready yet. ")
+        return self._spatial_aggregation.name
 
 spatial_aggregators = {
     "model_region": ModelRegionSpatialAggregator,
@@ -162,9 +181,8 @@ def create_spatial_aggregator(
         lvl1_mapping: Dict | pd.Series | None = None, 
         lvl2_mapping: Dict | pd.Series | None = None, 
         ranges: List | None = None, 
-        geoms: gpd.GeoSeries | None = None, 
-        region_shp: gpd.GeoDataFrame | None = None, 
-        region_colname: str | None = None,
+        points: gpd.GeoDataFrame | None = None, 
+        areas: gpd.GeoDataFrame | None = None, 
         ) -> type[SpatialAggregator]:
     """ Creates a spatial aggregator. 
     
@@ -189,15 +207,14 @@ def create_spatial_aggregator(
             range_min: lower value in the range, inclusive
             range_max: uppder value in the range, exclusive
         Used for "custom_ranges" aggregation type
-    taz_geoms=geopandas.GeoSeries, optional
-        taz x, y coordinates 
+    points=geopandas.GeoDataFrame, optional
+        geopandas.GeoDataFrame containing the point geometries of each 
+        item to be aggregations
+    areas: geopandas.GeoDataFrame, optional
+        Polygon GeoDataFrame containing region boundaries, must contain
+        a 'geometry' column. The index will be applied as the aggregator.
         Used for "shapefile" aggregation type
-    region_shp: geopandas.GeoDataFrame, optional
-        Polygon GIS shapefile containing region boundaries.
-        Used for "Shapefile" aggregation type
-    region_colname: str, optional
-        column name from the shapefile to use for aggregation region definition.
-        Used for "Shapefile" aggregation type
+
 
     Returns
     -------
@@ -214,9 +231,8 @@ def create_spatial_aggregator(
               lvl1_mapping=lvl1_mapping, 
               lvl2_mapping=lvl2_mapping, 
               ranges=ranges,
-              geoms=geoms, 
-              region_shp=region_shp, 
-              region_colname=region_colname
+              points=points, 
+              areas=areas
     )
 
 def summarize_table_with_spatial_aggregation(    

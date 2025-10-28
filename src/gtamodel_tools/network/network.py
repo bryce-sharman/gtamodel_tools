@@ -39,10 +39,30 @@ class Network(object):
     Args:
         config: gtamodel_tools.config.Config
             Stored post-processsing configuration.
-
+        start_time: int | None
+            Start time of the network assignment_period in minutes after 
+            midnight. Is None if network does not have auto or transit 
+            assignment results. Default is None.
+        end_time: int | None
+            End time of the network assignment_period in minutes after 
+            midnight. Is None if network does not have auto or transit 
+            assignment results. Default is None.
+        auto_phf: float | None
+            Auto peak-hour factor. Is None if network does not have auto 
+            assignment results. Default is None.
+        transit_phf: float | None
+            Transit peak-hour factor. Is None if network does not have transit 
+            assignment results. Default is None.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(
+            self, 
+            config: Config, 
+            start_time: int|None=None, 
+            end_time: int|None=None,
+            auto_phf: float|None=None,
+            transit_phf: float|None=None
+            ) -> None:
 
         # The following attributes are defined directly in the config file
         self.network_crs = config.network_crs
@@ -60,6 +80,10 @@ class Network(object):
         self.traffic_countposts = config.traffic_countposts
         self.transit_countposts = config.transit_countposts
 
+        self.start_time = start_time
+        self.end_time = end_time
+        self.auto_phf = auto_phf
+        self.transit_phf = transit_phf
 
         self.station_name_col = 'stn'
         self.geometry_col = 'geometry'
@@ -304,7 +328,7 @@ class Network(object):
             node_aggregation: Type[sa.SpatialAggregator] | None = None,
             aggregate_on_node: str | None = None,
             segment_by_linkclass: bool | None = None,
-        ):
+        ) -> float | pd.DataFrame:
         """ Calculate vehicle kilometers travelled.
 
         Arguments:
@@ -847,15 +871,11 @@ class Network(object):
 
 #region Transit
 
-    def output_transit_results_at_countposts(self, time_period_duration) -> pd.DataFrame:
+    def output_transit_results_at_countposts(self) -> pd.DataFrame:
         """ 
         Outputs transit volumes and capacities at countposts,
         which are defined in the configuration file.
 
-        Args:
-        time_period_duration: float
-            Effective number of hours in the time period (used to calculate capacities)
-        
         Returns:
             pandas DataFrame:
                 - MultiIndex is the countpost description and direction
@@ -891,9 +911,12 @@ class Network(object):
             left_on=self.tvehs_veh_col, 
             right_index=True
         )
+        if self.transit_phf is None:
+            raise RuntimeError(
+                "Transit peak-hour factor (transit_phf) must be defined "
+                "for an assigned network.")
         tsegs[capacity_col] = tsegs[self.tveh_totalcapacity_col] * \
-            (60.0 * time_period_duration) / tsegs[self.tline_headway_col]
-        
+            self.transit_phf * 60.0 / tsegs[self.tline_headway_col]
 
         countposts_buffer = gpd.GeoDataFrame(
             index=countposts.index,
@@ -937,7 +960,7 @@ class Network(object):
         final.index.names = [countposts_col, self.link_dir_col]
         return final[[volume_col, capacity_col, vcr_col]]
 
-    def calculate_line_profiles_from_config(
+    def calculate_line_profiles(
             self) -> pd.DataFrame:
         """ 
         Calculate line profiles for all transit lines defined in the 
@@ -1045,7 +1068,7 @@ class Network(object):
                             print('No transit line is a subset of the other, '
                                 'Cannot create joint line profile')
                             return None
-                        current = combine_lineprofiles(ex, new, how, suffixes)
+                    current = combine_lineprofiles(ex, new, how, suffixes)
                 line_profile = current
         if line_profile is None:
             return None
@@ -1556,7 +1579,7 @@ class Network(object):
         return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
 
     @property
-    def transit_vkt_expr(self) -> str:
+    def transit_pkt_expr(self) -> str:
         return f'{self.link_length_col} * {self.tsegments_volume_col}'
 
     @property
