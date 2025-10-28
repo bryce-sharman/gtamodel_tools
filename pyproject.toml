@@ -1,13 +1,27 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=61.0.0"]
 
 [project]
-name = "tmg_tdm_tools"
+name = "gtamodel_tools"
 version = "0.01"
-description = "TMG Travel Model Post-Processing"
+authors = [
+    {name="Bryce Sharman"}
+]
+description = "Python tools supporting TMG GTAModel."
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "geopandas", 
+    "matplotlib",  
+    "numexpr",
+    "numpy", 
+    "openpyxl",
+    "pandas", 
+    "pyogrio",
+    "pytest",
+    "shapely",
+    "yaml"]
 classifiers = [
     "License :: OSI Approved || MIT License",
     "Operating System :: OS Independent",
@@ -19,5 +33,10 @@ addopts = "-ra -q -s"
 testpaths = [
     "tests"
 ]
+[tool.setuptools.packages.find]
+where = ["src"]
 
+[tool.setuptools.package-data]
+mypkg = ["*.csv"]
 
+keywords = ["GTAModel", "TMG"]

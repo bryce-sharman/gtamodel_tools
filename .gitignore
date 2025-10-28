@@ -2,3 +2,5 @@
 build/*
 *.egg-info
 *.cpython*
+*-checkpoint.ipynb
+.vscode/*
