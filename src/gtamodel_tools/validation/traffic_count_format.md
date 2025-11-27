@@ -26,49 +26,61 @@ envisioned that more data count sources can be included at a later date.
 
 |   Field Name  | Field Type | Description |
 | ------------- | ---------- | ----------- |
-| source        | text(8)   | Count source |
-| station_id    | text(10)   | Unique ID describing count station, see below for details
+| source        | text(4)    | Count source (see below for possible codes) |
+| station_id    | text(10)    | Unique ID describing count station |
 | direction     | text(2)    | Cartesian direction |
-| description   | text(50)   | Text description of location
-| longitude     | Float      | Longitude coordinates of count station, EPSG:4326
-| latitude      | Float      | Latitude coordinates of count station, EPSG:4326
-| geometry      | shapely.LineString | Centreline of the road link on which count station is located, , EPSG:4326
+| description   | Unicode    | Text description of location
+| longitude     | Float      | Longitude coordinates of count station, EPSG:4326 |
+| latitude      | Float      | Latitude coordinates of count station, EPSG:4326 |
+| geometry      | shapely.LineString | Centreline of the road link on which count station is located, , EPSG:4326 |
 
- 
+The combination of `source`, `station_id` and `direction` form a unique key to the station. 
+
+
 ### Count table
 
-|    Field Name     |      Field Type   | Description |
-| ----------------- | ----------------- | ----------- |
-| count_id          | text(12)          | Unique id of traffic count record, see below for details
-| 
-| station_id        | text(10)          | Count station id, links to stations table, see below for details
-| direction         | str(2)            | one of 'NB', 'EB', 'SB' or 'WB'
-| date              | datetime.date     | Count date -- Set to Jan 1st of the year for cordon counts
-| time_start        | datetime.time     | Start time of count interval (inclusive)
-| time_end          | datetime.time     | End time of count interval (exclusive)
-| vol_passenger     | int               | Counted volume of light (passenger) vehicles            
-| vol_buses         | int               | Counted volume of buses            
-| vol_straighttruck | int               | Counted volume of straight trucks            
-| vol_singletrailer | int               | Counted volume of trucks with a single trailer
-| vol_multitrailer  | int               | Counted volume of trucks with multiple trailers
-| vol_truck         | int               | Counted volume of all trucks
-| vol_heavy         | int               | Counted volume of heavy vehicles (trucks + buses)
-| vol_total         | int               | Counted volume of all vehicles
+|    Field Name   | Field Type | Description |
+| --------------- | ---------- | ----------- |
+| source          | text(12)   | Unique id of traffic count record, see below for details |
+| station_id      | text(10)   | Count station id, links to stations table, see below for details |
+| direction       | str(2)     | one of 'NB', 'EB', 'SB' or 'WB' |
+| date            | str        | Count date -- Set to Jan 1st of the year for cordon counts |
+| vtotal_ampkhr   | float(4)   | AM peak-hour total vehicle volume | 
+| vtotal_ampkper  | float(4)   | AM peak period total vehicle volume | 
+| vtotal_pmpkhr   | float(4)   | PM peak-hour total vehicle volume | 
+| vtotal_pmpkper  | float(4)   | PM peak-period total vehicle volume | 
+| vtotal_weekday  | float(4)   | Daily total weekday vehicle volume | 
+| vtotal_weekdend | float(4)   | Daily total weekend vehicle volume | 
+| vcars_ampkhr    | float(4)   | AM peak-hour car volume (if available) | 
+| vcars_ampkper   | float(4)   | AM peak period car volume (if available) | 
+| vcars_pmpkhr    | float(4)   | PM peak-hour car volume (if available) | 
+| vcars_pmpkper   | float(4)   | PM peak-period car volume (if available) | 
+| vcars_weekday   | float(4)   | Daily cars weekday vehicle volume | 
+| vcars_weekdend  | float(4)   | Daily cars weekend vehicle volume | 
+| vbuses_ampkhr   | float(4)   | AM peak-hour bus volume (if available) | 
+| vbuses_ampkper  | float(4)   | AM peak period bus volume (if available) | 
+| vbuses_pmpkhr   | float(4)   | PM peak-hour bus volume (if available) | 
+| vbuses_pmpkper  | float(4)   | PM peak-period bus volume (if available) | 
+| vbuses_weekday  | float(4)   | Daily bus weekday vehicle volume | 
+| vbuses_weekdend | float(4)   | Daily bus weekend vehicle volume | 
+| vtrucks_ampkhr  | float(4)   | AM peak-hour truck volume of  (if available) | 
+| vtrucks_ampkper | float(4)   | AM peak period truck volume of  (if available) | 
+| vtrucks_pmpkhr  | float(4)   | PM peak-hour truck volume of  (if available) | 
+| vtrucks_pmpkper | float(4)   | PM peak-period truck volume of  (if available) | 
+| vtrucks_weekday | float(4)   | Daily truck weekday vehicle volume | 
+| vtrucks_weekdend| float(4)   | Daily truck weekend vehicle volume | 
+| vheavy_ampkhr   | float(4)   | AM peak-hour heavy vehicle volume of  (if available) | 
+| vheavy_ampkper  | float(4)   | AM peak period heavy vehicle volume of  (if available) | 
+| vheavy_pmpkhr   | float(4)   | PM peak-hour heavy vehicle volume of  (if available) | 
+| vheavy_pmpkper  | float(4)   | PM peak-period heavy vehicle volume of  (if available) | 
+| vheavy_weekday  | float(4)   | Daily heavy weekday vehicle volume | 
+| vheavy_weekdend | float(4)   | Daily heavy weekend vehicle volume | 
 
+The combination of `source`, `station_id`, `direction` and `date` form a 
+unique key to the station. 
+
+Using floats for all counts as they include NaNs.
 ### Vehicle Types
-
-**FWHA classes of vehicle types:**
-- vol_passenger: fwha1(motorbike) + fwha2(cars) + fhwa3(pickups)
-- vol_buses: fwha4(buses)
-- vol_straighttruck: fwha5 + fwha6 + fwha7
-- vol_singletrailer: fwha8 + fwha9 + fwha10
-- vol_multitrailer: fwha11 + fwha12 + fwha13
-
-**Aggregate vehicle classes:**
-- vol_truck: vol_straight_truck + vol_single_trailer + vol_single_trailer
-- vol_heavy: vol_truck + vol_buses (or all - vol_passenger)
-- vol_total: all vehicles (vol_passenger + vol_heavy)
-
 
 ### Data Sources
 
@@ -83,12 +95,6 @@ Cordon count data: The 4 digit year is appended to the back of cordon counts
 Other data sources:
 - TMBK: Toronto Midblock vcounts
 
-### Station IDs
-
-To ensure uniqueness, station IDS are defined as follows:
-- Cordon count:
-    - Cordon count station (in region), without the direction label
-- City of Toronto Midblock Vehicle Speed, Volume and Classification Counts
 
 ### Count IDs
 

@@ -1,3 +1,5 @@
+""" Module for reading and filtering Toronto Centreline (TCL) data. """
+
 import pyogrio   # Seem to need to import before geopandas for some reason
 from geopandas import read_file, GeoDataFrame
 from os import PathLike

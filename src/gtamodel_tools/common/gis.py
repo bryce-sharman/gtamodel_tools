@@ -128,70 +128,76 @@ def areal_apportionment(
 
 
 
-def create_vertices_on_line(
-        line: LineString,
-        target_segment_length: float,
+# def create_vertices_on_line(
+#         line: LineString,
+#         target_segment_length: float,
 
-    ) -> List[Point]:
-    ''' Return a list of vertices on a line.
+#     ) -> List[Point]:
+#     ''' Return a list of vertices on a line.
 
-    An initial set of vertices are created as follows:
-    - Start and end points
-    - Internal vertices
-    - Segments (between two vertices ) are split if their length exceeds
-      `max_segment_length`
+#     An initial set of vertices are created as follows:
+#     - Start and end points
+#     - Internal vertices
+#     - Segments (between two vertices ) are split if their length exceeds
+#       `max_segment_length`
 
-    A vertex is removed if the sum of the lengths on both sides of the vertex
-    is less than target_segment_length.
+#     A vertex is removed if the sum of the lengths on both sides of the vertex
+#     is less than target_segment_length.
 
-    Args:
-        line: Line which to represent as a list of Points
-        target_segment_length: Target length of all segments between 
-            adjacent returned points. 
+#     Args:
+#         line: Line which to represent as a list of Points
+#         target_segment_length: Target length of all segments between 
+#             adjacent returned points. 
     
-    Returns:
-        - List of Points that represent the line.
+#     Returns:
+#         - List of Points that represent the line.
 
-    '''
-    pass
+#     '''
+#     pass
 
 
 
-def find_closest_line_to_point(
-        pt: Point,
-        lines: gpd.GeoSeries,
-        coarse_threshold: float
-    ) -> int | str:
-    """ Find the closest LineString to a given point.
+# def find_closest_line_to_point(
+#         pt: Point,
+#         lines: gpd.GeoSeries,
+#         coarse_threshold: float
+#     ) -> int | str:
+#     """ Find the closest LineString to a given point.
 
-    Args:
-        pt: point of interest
-        lines: shapely.GeoSeries containing the lines to search
-        coarse_threshold: only consider lines whose bounding box
-            is within this threshold (X or Y direction) of the point for
-            more detailed search.
+#     Args:
+#         pt: point of interest
+#         lines: shapely.GeoSeries containing the lines to search
+#         coarse_threshold: only consider lines whose bounding box
+#             is within this threshold (X or Y direction) of the point for
+#             more detailed search.
 
-    Returns:
-        Index of the closest line in `lines` GeoSeries.
+#     Returns:
+#         Index of the closest line in `lines` GeoSeries.
     
-    """
-    pass
+#     """
+#     pass
 
 
 def calc_linestring_orientation(
         x: LineString | MultiLineString, 
-        axis_offset: float,
-        return_type: str) -> float | str:
+        axis_offset: float=0.0,
+        return_type: str='cartesian') -> float | str:
     """ Calculate the road orientation w.r.t. offset axis.
+    
+    The orientation is calculated based on the start and end points. 
 
     Args:
         x: Line shape
         axis_offset: angle in degrees between absolute east and local east 
             directions.
-        return_type: if 'angle', return the angle w.r.t. offset axis,
-            if 'cartesian', return the cartesian direction w.r.t. offset 
-                axis. [NB, EB, WB or SB]
-
+        return_type: 
+            either 'angle' or 'cartesian'
+    Returns 
+        if return_type == 'angle' returns the angle in degrees between -180 
+            and 180, with 0 being the offset axis direction, positive angles
+            being counter-clockwise from the offset axis.
+        if return_type == 'cartesian', return the cartesian direction with 
+            respect to the offset axis [NB, EB, WB or SB].
     """
     if isinstance(x, LineString):
         st = Point(x.coords[0][0], x.coords[0][1])
@@ -218,12 +224,40 @@ def calc_linestring_orientation(
         return angle
     elif return_type == 'cartesian':
         if -45 <= angle < 45:
-            return "EB"
+            return 'EB'
         elif 45 <= angle < 135:
-            return "NB"
+            return 'NB'
         elif -135 <= angle < -45:
-            return "SB"
+            return 'SB'
         else:
-            return "WB"
+            return 'WB'
     else:
         raise ValueError("Invalid 'return_type' argument.")
+    
+# def reverse_line_directions(stns: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+#     """ Reverse Shapefile line directions of all lines in a Line GeoDataFrame.
+    
+#     Args:
+#         stns: the geometry column is the tentative LineString of the road
+#             segment on which the count was taken.
+
+#     Returns
+#         gpd.GeoDataFrame: Count stations with modified geometry so that the 
+#             direction matches the count direction
+#     """
+    
+#     stns[SHPDIR_COL] = stns.geometry.apply(
+#         lambda x: gis.calc_linestring_orientation(
+#             x, en_tocnts.AXIS_OFFSET, 'cartesian'))
+#     stns[OPPDIR_COL] = stns[SHPDIR_COL].map(en_traffic.OPPOSITE_DIR)
+#     stns[FLAG_COL] = ''
+#     stns = stns.copy()  # Ensure a fresh dataset before going line-by-line
+#     for stni, stnr in stns.iterrows():
+#         if stnr[en_traffic.DIR] == stnr[OPPDIR_COL]:
+#             stns.at[stni, FLAG_COL] = FLAG_OPPDIR
+#             stns.at[stni, 'geometry'] = stns.at[stni, 'geometry'].reverse()
+#         elif stnr[en_traffic.DIR] == stnr[SHPDIR_COL]:
+#             stns.at[stni, FLAG_COL] = SHPDIR_COL
+#         else:
+#             stns.at[stni, FLAG_COL] = FLAG_CROSSDIR
+#     return stns
