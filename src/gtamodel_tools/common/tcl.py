@@ -3,7 +3,6 @@
 import pyogrio   # Seem to need to import before geopandas for some reason
 from geopandas import read_file, GeoDataFrame
 from os import PathLike
-from typing import List
 
 import gtamodel_tools.enums.validation.tcl as en_tcl
 
@@ -28,7 +27,7 @@ def read_tcl_gpkg(fp: PathLike,) -> GeoDataFrame:
 
 def filter_by_roadclass(
         gdf: GeoDataFrame,
-        road_levels: List[str],
+        road_levels: list[str],
     ) -> GeoDataFrame:
     """ Filters Toronto Centreline data by road class.
 

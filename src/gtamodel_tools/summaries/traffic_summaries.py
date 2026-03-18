@@ -1,11 +1,10 @@
 import geopandas as gpd
 import pandas as pd
-from typing import List
 
 from gtamodel_tools.network.network import Network
 
 def summarize_traffic_vkt(
-        networks: Network | List[Network],
+        networks: Network | list[Network],
         summarize_by_linkclass: bool,
         scale_by_auto_phf: bool = False
     ) -> float | pd.DataFrame:
@@ -48,7 +47,7 @@ def summarize_traffic_vkt(
 
 
 def summarize_traffic_vht(
-        networks: Network | List[Network],
+        networks: Network | list[Network],
         summarize_by_linkclass: bool,
         scale_by_auto_phf: bool = False
     ) -> float | pd.DataFrame:
@@ -91,7 +90,7 @@ def summarize_traffic_vht(
 
     
 def summarize_traffic_across_screenlines(
-        networks: Network | List[Network],
+        networks: Network | list[Network],
         screenlines: gpd.GeoDataFrame,
         scale_by_auto_phf: bool = False
     ) -> pd.DataFrame:

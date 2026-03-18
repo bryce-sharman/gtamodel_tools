@@ -4,7 +4,7 @@ from os import PathLike
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Hashable, Iterable, Union
+from typing import Hashable, Iterable
 
 import gtamodel_tools.common.spatial_aggregator as sa
 
@@ -143,9 +143,9 @@ class Matrix(object):
     @classmethod
     def from_emme_emx(cls, file: PathLike, 
              *, 
-             zones: Union[int, Iterable[int], pd.Index, None] = None,
+             zones: int | Iterable[int] | pd.Index | None = None,
              tall: bool = False
-        ) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
+        ) -> np.ndarray | pd.DataFrame | pd.Series:
         """Reads an "internal" Emme matrix.
         
         These files are found in `<Emme Project>/Database/emmemat` with an '.emx' 

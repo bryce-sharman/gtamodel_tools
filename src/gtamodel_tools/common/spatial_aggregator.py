@@ -3,7 +3,7 @@ import geopandas as gpd
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
-from typing import Dict, Hashable, List
+from typing import Hashable
 
 class SpatialAggregator(ABC):
     @abstractmethod
@@ -56,7 +56,7 @@ class OneLevelMappingSpatialAggregator(SpatialAggregator):
                 "OneLevelMappingSpatialAggregator must be defined using `name` "
                 "and `lvl1_mapping` parameters."
             )
-        # taz_mapping can be either a Dict or a pandas Series, convert to Series
+        # taz_mapping can be either a dict or a pandas Series, convert to Series
         self._spatial_aggregation = pd.Series(lvl1_mapping)
         self._spatial_aggregation.name = name
 
@@ -79,7 +79,7 @@ class TwoLevelMappingSpatialAggregator(SpatialAggregator):
             raise AttributeError(
                 "TwoLevelMappingSpatialAggregator must be defined using "
                 "'name', 'lvl1_mapping' and 'lvl2_mapping' parameters.")
-        # lvl1_mapping and lvl2_mapping can be either a Dict or a 
+        # lvl1_mapping and lvl2_mapping can be either a dict or a 
         # pandas Series, convert to Series
         lvl1_mapping = pd.Series(lvl1_mapping)
         lvl2_mapping = pd.Series(lvl2_mapping)
@@ -177,10 +177,10 @@ spatial_aggregators = {
 def create_spatial_aggregator(
         aggregation_type: str, 
         name: str, 
-        ids: pd.Series | pd.Index | List | None = None, 
-        lvl1_mapping: Dict | pd.Series | None = None, 
-        lvl2_mapping: Dict | pd.Series | None = None, 
-        ranges: List | None = None, 
+        ids: pd.Series | pd.Index | list | None = None, 
+        lvl1_mapping: dict | pd.Series | None = None, 
+        lvl2_mapping: dict | pd.Series | None = None, 
+        ranges: list | None = None, 
         points: gpd.GeoDataFrame | None = None, 
         areas: gpd.GeoDataFrame | None = None, 
         ) -> type[SpatialAggregator]:
@@ -190,9 +190,10 @@ def create_spatial_aggregator(
     aggregation_type: str
         Must be one of: ["model_region", "one_level_mapping",  
             "two_level_mapping", "custom_ranges", "shapefile"]
-    name: str
+    name:
         Name to call the spatial aggregator
-    tazs: List of traffic analysis zone IDs. Used for 'zone', 
+    tazs: 
+        List of traffic analysis zone IDs. Used for 'zone', 
         'model_region' and 'custom_ranges' aggregation type.
     lvl1_mapping: 
         Direct mapping between to desired aggregation regions. 
@@ -201,8 +202,8 @@ def create_spatial_aggregator(
         Two-level mapping to desired aggregation regions. (e.g. zone 
         to super-zone, then super-zone to final regions).
         Used for "two_level_mapping" aggregation type.
-    ranges: list of tuples defined ranges
-        each tuple is defined as:
+    ranges: 
+        List of tuples defined ranges. Each tuple is defined as:
             label: aggregation region label
             range_min: lower value in the range, inclusive
             range_max: uppder value in the range, exclusive
@@ -237,34 +238,35 @@ def create_spatial_aggregator(
 
 def summarize_table_with_spatial_aggregation(    
         df: pd.DataFrame,
-        values: str | List[str],
-        geom_id: str | List[str],
-        spatial_aggregations: type[SpatialAggregator] | None | bool | List[
+        values: str | list[str],
+        geom_id: str | list[str],
+        spatial_aggregations: type[SpatialAggregator] | None | bool | list[
             type[SpatialAggregator] | None | bool] , 
-        crosstabs: str | List[str] | None = None,
-        crosstab_segments: Dict | List[Dict] | None = None
+        crosstabs: str | list[str] | None = None,
+        crosstab_segments: dict | list[dict] | None = None
     ) -> pd.DataFrame | pd.Series:
     """ Applies creates summary for table given spatial aggrgations(s).
 
     Args:
-        df: panadas.DataFrame 
+        df:
             Data on which to apply spatial aggregation
-        values: str, list[str]
+        values: 
             Mathematical expression to be evaluated, will be calculated 
             using pd.eval.
-        geom_id: str or List[str]
+        geom_id: 
             Column name or list of column names to use for the geometries 
             to be aggregated.
-        spatial_aggregations: Subclass of SpatialAggregator, or List of
-            spatial aggregators or None. A list can be provided to denote
+        spatial_aggregations: 
+            SpatialAggregator object or list of SpatialAggregator objects to.
+            apply. A list can be provided to denote
             multiple aggregation summaries.  If None (or any level in a list 
             is None), then that level is output at the TAZ level. If any level 
             in a list is False, then this will not be included in summary  
             aggregation. Cannot be False for a single-level aggregation.
-        crosstabs: str or List[str]
+        crosstabs: 
             Column or list of columns to be used to used create 
             cross-tabulations tables.
-        crosstab_segments: Dict or List[dict] 
+        crosstab_segments: 
             Define crosstab segmentation.
 
     Returns:
@@ -361,7 +363,7 @@ def create_integer_crosstab_segment_dict(
         max_value: int, 
         prefix: str='',
         suffix: str=''
-    ) -> Dict:
+    ) -> dict:
     """ Create a crosstab_segmentation dictionary for integer values.
     
     Args:

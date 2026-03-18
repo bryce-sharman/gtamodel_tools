@@ -21,8 +21,8 @@ COMMON_DTYPES = {
     LON_CN: npdtype('f8'),        # 64-bit (double-precision) float
     LAT_CN: npdtype('f8'),        # 64-bit (double-precision) float
     CNTRLNID_CN: npdtype('u4'),   # 32-bit unsigned int, 0 to ~4.3 billion
-    STTIME_CN: npdtype('U'),      # numpy datetime64
-    ENDTIME_CN: npdtype('U'),     # numpy datetime64
+    STTIME_CN: npdtype('U'),      # Unicode string, will parse to datetime later
+    ENDTIME_CN: npdtype('U'),     # Unicode string, will parse to datetime later
     DIR_CN: npdtype('U')         # One of NB, SB, EW, WB
 }
 

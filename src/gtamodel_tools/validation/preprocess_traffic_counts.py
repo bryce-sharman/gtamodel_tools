@@ -5,7 +5,6 @@ import geopandas as gpd
 from os import PathLike
 import pandas as pd
 import shapely
-from typing import Tuple
 
 import gtamodel_tools.common.gis as gis
 import gtamodel_tools.enums.validation.traffic.traffic as en_traffic

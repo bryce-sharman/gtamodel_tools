@@ -1,12 +1,12 @@
 import pandas as pd
-from typing import List, Type
+from typing import Type
 
 from gtamodel_tools.network.network import Network
 import gtamodel_tools.common.spatial_aggregator as sa
 
 
 def summarize_transit_boardings_by_operator(
-        networks: Network | List[Network]) -> float | pd.DataFrame:
+        networks: Network | list[Network]) -> float | pd.DataFrame:
     """ Summarizes transit boardings by operator.
 
     Args:
@@ -32,7 +32,7 @@ def summarize_transit_boardings_by_operator(
 
 
 def summarize_transit_pkt_by_operator(
-        networks: Network | List[Network]) -> float | pd.DataFrame:
+        networks: Network | list[Network]) -> float | pd.DataFrame:
     """ Summarizes passenger kilometres travelled by operator.
 
     Args:
@@ -74,7 +74,7 @@ def summarize_transit_line_profiles(network: Network) -> float | pd.DataFrame:
     return network.calculate_line_profiles()
 
 def summarize_at_transit_countposts(
-        networks: Network | List[Network]) -> pd.DataFrame:
+        networks: Network | list[Network]) -> pd.DataFrame:
     """ Outputs the transit volumes and capacities at countposts.
 
     Args:
@@ -98,21 +98,22 @@ def summarize_at_transit_countposts(
 
 
 def summarize_boardings_by_region(
-        networks: Network | List[Network],
+        networks: Network | list[Network],
         node_aggregation: Type[sa.SpatialAggregator],
         filter_expression: str | None = None,
-        crosstab_columns: str | List[str] | None = None
+        crosstab_columns: str | list[str] | None = None
         ) -> float | pd.DataFrame:
     """ Outputs the transit volumes and capacities at countposts.
 
     Args:
-        networks: Network object[s] containing transit data.
+        networks: 
+            Network object[s] containing transit data.
         node_aggregation: sa.SpatialAggregator
             Node spatial aggregations used to aggregate boardings.
-        filter_expression: str | None:
+        filter_expression:
             Optional filter_expression passed into 
             summarize_transit_segments method.
-        crosstab_columns: str | List[str] | None
+        crosstab_columns: 
             Optional crosstab_columns passed into 
             summarize_transit_segments method.
 
@@ -139,21 +140,22 @@ def summarize_boardings_by_region(
         )
 
 def summarize_alightings_by_region(
-        networks: Network | List[Network],
+        networks: Network | list[Network],
         node_aggregation: Type[sa.SpatialAggregator],
         filter_expression: str | None = None,
-        crosstab_columns: str | List[str] | None = None
+        crosstab_columns: str | list[str] | None = None
         ) -> float | pd.DataFrame:
     """ Outputs the transit volumes and capacities at countposts.
 
     Args:
-        networks: Network object[s] containing transit data.
-        node_aggregation: sa.SpatialAggregator
+        networks: 
+            Network object[s] containing transit data.
+        node_aggregation:
             Node spatial aggregations used to aggregate alightings.
-        filter_expression: str | None:
+        filter_expression: 
             Optional filter_expression passed into 
             summarize_transit_segments method.
-        crosstab_columns: str | List[str] | None
+        crosstab_columns:
             Optional crosstab_columns passed into 
             summarize_transit_segments method.
 

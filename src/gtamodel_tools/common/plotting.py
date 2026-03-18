@@ -8,7 +8,6 @@ from matplotlib import colormaps
 from os import PathLike
 import numpy as np
 import pandas as pd
-from typing import Tuple
 
 idx = pd.IndexSlice
 
@@ -16,7 +15,7 @@ def plot_line_profiles(
         line_profiles: pd.DataFrame,
         fp: PathLike,
         *,
-        figsize: Tuple=(8, 10),
+        figsize: tuple=(8, 10),
         fontsize: float=12.0,
         titlefontsize: float=16.0
     ) -> None:
@@ -176,7 +175,7 @@ def plot_annual_boardings_validation(
         reference_boardings: pd.Series,
         fp: PathLike,
         *,
-        figsize: Tuple=(8, 5),
+        figsize: tuple=(8, 5),
         fontsize=12.0,
         titlefontsize=16.0
 ) -> None:
@@ -247,7 +246,7 @@ def plot_labelled_XY_validation(
         title: str,
         fp: PathLike,
         *,
-        figsize: Tuple=(8, 5),
+        figsize: tuple=(8, 5),
         fontsize=12.0,
         titlefontsize=16.0
     ) -> None:
@@ -321,7 +320,7 @@ def plot_barchart_validation(
         y_label: str,
         fp: PathLike,
         *,
-        figsize: Tuple=(8, 5),
+        figsize: tuple=(8, 5),
         fontsize=12.0,
         titlefontsize=16.0,
         x_label_rotation = 90

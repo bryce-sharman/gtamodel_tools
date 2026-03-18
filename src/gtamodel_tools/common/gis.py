@@ -3,7 +3,7 @@ from math import atan2, pi
 import numpy as np
 import pandas as pd
 from shapely import Point, LineString, MultiLineString
-from typing import List, Optional
+from typing import Optional
 
 
 
@@ -11,7 +11,7 @@ from typing import List, Optional
 def areal_apportionment(
         from_gdf: gpd.GeoDataFrame, 
         to_gdf: gpd.GeoDataFrame, 
-        columns: Optional[List[str]]=None, 
+        columns: Optional[list[str]]=None, 
         tolerance: float=0.01
     ) -> pd.DataFrame:
     """ Uses Areal apportionment to transfer data between zone systems.
@@ -132,7 +132,7 @@ def areal_apportionment(
 #         line: LineString,
 #         target_segment_length: float,
 
-#     ) -> List[Point]:
+#     ) -> list[Point]:
 #     ''' Return a list of vertices on a line.
 
 #     An initial set of vertices are created as follows:

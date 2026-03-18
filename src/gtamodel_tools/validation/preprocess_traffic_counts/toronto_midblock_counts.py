@@ -69,7 +69,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from os import PathLike
-from typing import List, Tuple
 
 # gtamodel_tools imports
 from gtamodel_tools.common.gis import calc_linestring_orientation
@@ -94,7 +93,7 @@ TIMEPERIOD_CN = 'time_period'
 def read_midblock_counts(
         loc: str | PathLike,
         tcl_gdf: gpd.GeoDataFrame
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ Read all Toronto Mid-block traffic counts from directory.
 
     Args:
@@ -150,7 +149,7 @@ def read_midblock_counts(
 def read_midblock_volume_counts(
         fp: PathLike, 
         tcl_gdf: gpd.GeoDataFrame
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ Reads City of Toronto Midblock count raw volume from CSV file.
 
     Args:
@@ -209,7 +208,7 @@ def read_midblock_volume_counts(
 def read_midblock_speedvolume_counts(
         fp: PathLike, 
         tcl_gdf: gpd.GeoDataFrame
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ Reads City of Toronto Midblock count raw speed-volume from CSV file.
 
     Args:
@@ -273,7 +272,7 @@ def read_midblock_speedvolume_counts(
 def read_midblock_classvolume_counts(
         fp: PathLike, 
         tcl_gdf: gpd.GeoDataFrame
-    ) -> Tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ 
     Reads City of Toronto Midblock count raw classification counts from CSV file.
 
@@ -510,8 +509,8 @@ def _finalize_counts_table(
 
 def _calculate_daily_volumes(
         cnts: pd.DataFrame, 
-        volume_columns: str | List[str],
-        colnames: str | List[str],
+        volume_columns: str | list[str],
+        colnames: str | list[str],
     ) -> pd.DataFrame:
     """ Calculate the daily_volume by station and day.
         
@@ -548,8 +547,8 @@ def _calculate_daily_volumes(
 
 def _calculate_period_volumes(
         cnts: pd.DataFrame, 
-        volume_columns: str | List[str],
-        colname_suffixes: str | List[str],
+        volume_columns: str | list[str],
+        colname_suffixes: str | list[str],
     ) -> pd.DataFrame:
     """ Calculates period volumes by station, day and time period. 
     
@@ -603,8 +602,8 @@ def _calculate_period_volumes(
 
 def _calculate_peakhour_volumes(
         cnts: pd.DataFrame, 
-        volume_columns: str | List[str],
-        colname_suffixes: str | List[str]
+        volume_columns: str | list[str],
+        colname_suffixes: str | list[str]
     ) -> pd.DataFrame:
     """ Calculates peak-hour volumes by station, day and time period.  
     Args:

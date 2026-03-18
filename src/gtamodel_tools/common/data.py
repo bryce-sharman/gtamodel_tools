@@ -6,10 +6,7 @@ Much of this code was provided by WSP Canada.
 
 from __future__ import annotations
 
-import re
-from keyword import kwlist
 from math import fabs
-from typing import Dict, Iterable, List, Optional, Type
 
 import numpy as np
 import pandas as pd
@@ -17,7 +14,7 @@ import pandas as pd
 
 def apply_dataframe_filter(
         df: pd.DataFrame, 
-        filter_expr: Optional[str]
+        filter_expr: str | None = None
     ) -> pd.DataFrame:
     """ Applies a filter expression to a DataFrame.
 
@@ -25,7 +22,7 @@ def apply_dataframe_filter(
         df: DataFrame to be filtered
         fltr_expr: filter expression, will be used by pandas.eval to
             filter household data using their attributes. If None then no 
-            filter is applied.
+            filter is applied. Default is None.
 
     Returns:
         Filtered table
@@ -135,8 +132,10 @@ def round_to_totals(df: pd.DataFrame, rounding_def: dict) -> pd.DataFrame:
 This section is code provided by WSP that has not yet been integrated
 into the wider package.
 
-def reindex_series(series: Series, target_series: Series, *, source_levels: List[int] = None,
-                   target_levels: List[int] = None, fill_value: Union[int, float] = None) -> Series:
+from keyword import kwlist
+
+def reindex_series(series: Series, target_series: Series, *, source_levels: list[int] = None,
+                   target_levels: list[int] = None, fill_value: Union[int, float] = None) -> Series:
     # Make shallow copies of the source and target series in case their indexes need to be changed
     series = series.copy(deep=False)
     target_series = target_series.copy(deep=False)
@@ -202,7 +201,7 @@ def _align_series_categories(series_list: Series):
         series.cat.reorder_categories(sorted_categories, inplace=True)
 
 
-def _enumerate_frame_categories(frames: DataFrame) -> Dict[str, set]:
+def _enumerate_frame_categories(frames: DataFrame) -> dict[str, set]:
     column_categories = {}
     for frame in frames:
         for col_name, series in frame.items():
@@ -217,7 +216,7 @@ def _enumerate_frame_categories(frames: DataFrame) -> Dict[str, set]:
     return column_categories
 
 
-def _align_frame_categories(frames: DataFrame, column_categories: Dict[str, set]):
+def _align_frame_categories(frames: DataFrame, column_categories: dict[str, set]):
     for col_name, all_categories in column_categories.items():
         sorted_categories = sorted(all_categories)
         for frame in frames:
@@ -284,14 +283,14 @@ def _alphanum_key(s):
     return [_tryint(c) for c in re.split('([0-9]+)', s)]
 
 
-def sort_nicely(l: List[str]) -> List[str]:
+def sort_nicely(l: list[str]) -> list[str]:
     """Sort the given list of strings in the way that humans expect.
 
     Args:
-        l (List[str]): List of strings to sort.
+        l (list[str]): List of strings to sort.
 
     Returns:
-        List[str]: The sorted list of strings
+        list[str]: The sorted list of strings
     """
     l = l.copy()
     l.sort(key=_alphanum_key)

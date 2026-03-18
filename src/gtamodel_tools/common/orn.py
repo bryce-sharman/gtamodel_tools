@@ -5,7 +5,6 @@ Functions to read Ontario Road Network (ORN) shapefile.
 import pyogrio   # Seem to need to import before geopandas for some reason
 from geopandas import read_file, GeoDataFrame
 from pandas import DataFrame
-from typing import List
 
 import gtamodel_tools.enums.validation.orn as en_orn
 
@@ -87,7 +86,7 @@ def filter_by_jurisdiction(
 def filter_by_roadclass(
         gdf: GeoDataFrame, 
         df: DataFrame, 
-        road_levels: List[str],
+        road_levels: list[str],
     ) -> GeoDataFrame:
     """ Filters the ORN road network to by road class.
 

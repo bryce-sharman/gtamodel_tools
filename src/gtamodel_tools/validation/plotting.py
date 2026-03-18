@@ -1,20 +1,19 @@
 from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
-from typing import  Dict, List, Tuple, Union
 
 
 def trumpet_diagram(
         counts: pd.Series, 
         model_volume: pd.Series, 
         *, 
-        categories: Union[pd.Series, List[pd.Series]] = None,
-        category_colours: Dict[Union[str, tuple], str] = None,
-        category_markers: Dict[Union[str, tuple], str] = None, 
-        label_format: str = None, 
+        categories: pd.Series | list[pd.Series] | None = None,
+        category_colours: dict[str | tuple, str] | None = None,
+        category_markers: dict[str | tuple, str] | None = None, 
+        label_format: str | None = None, 
         title: str = '',
-        y_bounds: Tuple[float, float] = (-2, 2), 
-        ax: Axes = None, 
+        y_bounds: tuple[float, float] = (-2, 2), 
+        ax: Axes | None = None, 
         x_label: str = "Count volume",
         legend: bool = True,  
         **kwargs) -> Axes:
@@ -24,39 +23,48 @@ def trumpet_diagram(
     plot different categories of count locations.
 
     Args:
-        counts (pandas.Series): Target counts. Each item represents a different 
+        counts: 
+            Target counts. Each item represents a different 
             count location. Index does not need to be unique.
-        model_volume (pandas.Series): Modelled volumes for each location. 
-            The index must match the counts Series.
-        categories (Union[pandas.Series, List[pandas.Series]], optional): 
-            Defaults to ``None``. Optional classification of each count 
-            location. Must match the index of the count Series. Can be provided 
-            as a List of Series (which all must match the count index) to enable 
-            tuple-based categorization.
-        category_colours (Dict[Union[str, tuple], str], optional): Defaults to 
-            ``None``. Mapping of each category to a colour, specified as a hex 
+        model_volume: 
+            Modelled volumes for each location. The index must match the counts 
+            Series.
+        categories: 
+            Optional classification of each count location. Must match the index 
+            of the count Series. Can be provided as a list of Series (which all 
+            must match the count index) to enable tuple-based categorization. 
+            Default is None.
+        category_colours 
+            Mapping of each category to a colour, specified as a hex 
             string. Only used when categories are provided. Missing categories 
-            revert to ``None``, using the default colour for the style.
-        category_markers (Dict[Union[str, tuple], str], optional): Defaults to 
-            ``None``. Mapping of each category to a matplotlib marker string 
+            revert to None, using the default colour for the style.
+            Default is None.
+        category_markers:  
+            Mapping of each category to a matplotlib marker string 
             (see https://matplotlib.org/api/markers_api.html for options). Only 
             used when categories are provided. Missing categories revert to 
-            ``None``, using the default marker for the style.
-        label_format (str, optional): Defaults to ``None``. Used to convert 
-            plot category values (especially tuples) into readable strings for
-            the legend. The relevant line of code is 
-            ``current_label = label_format % category_key``. Only used when 
+            None, using the default marker for the style. Default is None.
+        label_format:
+            Used to convert plot category values (especially tuples) into 
+            readable strings for the legend. The relevant line of code is 
+            "current_label = label_format % category_key". Only used when 
             categories are provided.
-        title (str, optional): The title to set on the plot.
-        y_bounds (tuple, optional): Defaults to ``(-2, 2)``, or (-200%, 200%). 
+        title:
+            The title to set on the plot. Default is an empty string.
+        y_bounds: 
             Limit of the Y-Axis. This is needed because relative errors can be 
             very high close to the y-intercept of the plot.
-        ax (matplotlib.Axes, optional): Defaults to ``None``. Sub-Axes to add 
-            this plot to, if using ``subplots()``.
-        x_label (str, optional): Defaults to ``'Count volume'``. Label to use 
-            for the X-axis. The Y-axis is always "Relative Error"
-        legend (bool, optional): Defaults to ``True``. Flag to add a legend.
-        **kwargs: Additional kwargs to pass to ``DataFrame.plot.scatter()``
+            Default is ``(-2, 2)``, or (-200%, 200%). 
+        ax:
+            Sub-Axes to add this plot to, if using ``subplots()``.
+            Defaults is None.
+        x_label: 
+            Label to use for the X-axis. The Y-axis is always "Relative Error". 
+            Default is "Count volume".
+        legend: 
+            Flag to add a legend. Default is True.
+        **kwargs: 
+            Additional kwargs to pass to ``DataFrame.plot.scatter()``
 
     Returns:
         matplotlib.Axes:
@@ -136,39 +144,55 @@ def scatterplot(
     counts: pd.Series, 
     model_volume: pd.Series, 
     *, 
-    categories: Union[pd.Series, List[pd.Series]] = None,            
-    category_colours: Dict[Union[str, tuple], str] = None,  
-    category_markers: Dict[Union[str, tuple], str] = None, 
-    label_format: str = None, 
+    categories: pd.Series | list[pd.Series] | None = None,            
+    category_colours: dict[str | tuple, str] | None = None,
+    category_markers: dict[str | tuple, str] | None = None, 
+    label_format: str | None = None, 
     title: str = '',
-    ax: Axes = None, 
+    ax: Axes | None = None, 
     x_label: str = "Count volume",
     legend: bool = True, **kwargs) -> Axes:
     """Plots an auto volumes "trumpet" diagram of relative error vs. target count, and will draw min/max error curves
     based on FHWA guidelines. Can be used to plot different categories of count locations.
 
     Args:
-        counts (pandas.Series): Target counts. Each item represents a different count location. Index does not need to
-            be unique.
-        model_volume (pandas.Series): Modelled volumes for each location. The index must match the counts Series.
-        categories (Union[pandas.Series, List[pandas.Series]], optional): Defaults to ``None``. Optional classification
-            of each count location. Must match the index of the count Series. Can be provided as a List of Series (which
-            all must match the count index) to enable tuple-based categorization.
-        category_colours (Dict[Union[str, tuple], str], optional): Defaults to ``None``. Mapping of each category to a
-            colour, specified as a hex string. Only used when categories are provided. Missing categories revert to
-            ``None``, using the default colour for the style.
-        category_markers (Dict[Union[str, tuple], str], optional): Defaults to ``None``. Mapping of each category to a
-            matplotlib marker string (see https://matplotlib.org/api/markers_api.html for options). Only used when
-            categories are provided. Missing categories revert to ``None``, using the default marker for the style.
-        label_format (str, optional): Defaults to ``None``. Used to convert category values (especially tuples) into
-            readable strings for the plot legend. The relevant line of code is
-            ``current_label = label_format % category_key``. Only used when categories are provided.
-        title (str, optional): The title to set on the plot.
-        ax (matplotlib.Axes, optional): Defaults to ``None``. Sub-Axes to add this plot to, if using ``subplots()``.
-        x_label (str, optional): Defaults to ``'Count volume'``. Label to use for the X-axis. The Y-axis is always
-            "Model volume"
-        legend (bool, optional): Defaults to ``True``. Flag to add a legend.
-        **kwargs: Additional kwargs to pass to ``DataFrame.plot.scatter()``
+        counts: 
+            Target counts. Each item represents a different count location. 
+            Index does not need to be unique.
+        model_volume: 
+            Modelled volumes for each location. The index must match the counts 
+            Series.
+        categories: 
+            Optional classification of each count location. Must match the index 
+            of the count Series. Can be provided as a list of Series (which
+            all must match the count index) to enable tuple-based 
+            categorization. Default is None.
+        category_colours: 
+            Mapping of each category to a colour, specified as a hex string. 
+            Only used when categories are provided. Missing categories revert to
+            None, using the default colour for the style. Default is None.
+        category_markers: 
+            Mapping of each category to a matplotlib marker string (see 
+            https://matplotlib.org/api/markers_api.html for options). Only used 
+            when categories are provided. Missing categories revert to None, 
+            using the default marker for the style. Default is None.
+        label_format:
+            Used to convert category values (especially tuples) into readable
+            strings for the plot legend. The relevant line of code is
+            ``current_label = label_format % category_key``. 
+            Only used when categories are provided. Default is None.
+        title: 
+            The title to set on the plot. Default is an empty string.
+        ax: 
+            Sub-Axes to add this plot to, if using ``subplots()``. 
+            Default is None.
+        x_label: 
+            Label to use for the X-axis. Note that the Y-axis is always 
+            "Model volume". Default is "Count volume". 
+        legend: 
+            Flag to add a legend. Default is True.
+        **kwargs: 
+            Additional kwargs to pass to ``DataFrame.plot.scatter()``
 
     Returns:
         matplotlib.Axes:

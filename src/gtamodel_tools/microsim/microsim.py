@@ -2,7 +2,7 @@ from importlib.resources import files
 import numpy as np
 from numpy.typing import NDArray
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Type
 
 from gtamodel_tools.config import Config
 import gtamodel_tools.common.data as data
@@ -257,7 +257,7 @@ class MicroSim():
             self, 
             home_sa: Type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None
+            hhld_fltr_expr: str | None = None
         ) -> pd.DataFrame:
         """ 
         Summarize the total number of households, number of people and 
@@ -289,7 +289,7 @@ class MicroSim():
             self, 
             home_sa: Type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None
+            hhld_fltr_expr: str | None = None
         ) -> pd.DataFrame:
         """ 
         Summarize the total number of households by income category. 
@@ -320,7 +320,7 @@ class MicroSim():
             self, 
             home_sa: Type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None,
+            hhld_fltr_expr: str | None = None,
             combine_above: int=98
         ) -> pd.DataFrame:
         """ 
@@ -354,7 +354,7 @@ class MicroSim():
             self,
             home_sa: type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None,
+            hhld_fltr_expr: str | None = None,
             combine_above: int=98
         ) -> pd.DataFrame:
         """ 
@@ -395,9 +395,9 @@ class MicroSim():
             home_sa: Type[sa.SpatialAggregator] | None,
             weight_expr: str = ems.WEIGHT,
             *,
-            crosstabs: str | List[str] | None = None,
-            crosstab_segments: Dict | List[Dict] | None = None,
-            hhld_fltr_expr: Optional[str] = None,
+            crosstabs: str | list[str] | None = None,
+            crosstab_segments: dict | list[dict] | None = None,
+            hhld_fltr_expr: str | None = None,
         ) -> pd.DataFrame | pd.Series:
         """ 
         Create a custom spatially aggregation of synthetic households, allowing 
@@ -431,8 +431,8 @@ class MicroSim():
             aggregate_at: str,
             pers_sa: Type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None,
-            pers_fltr_expr: Optional[str] = None,
+            hhld_fltr_expr: str | None = None,
+            pers_fltr_expr: str | None = None,
         ) -> pd.DataFrame | pd.Series:
         """ Spatially aggregates number of synthetic persons.
 
@@ -482,8 +482,8 @@ class MicroSim():
             pers_sa: Type[sa.SpatialAggregator] | None,
             age_categories: str,
             *,
-            hhld_fltr_expr: Optional[str] = None,
-            pers_fltr_expr: Optional[str] = None,
+            hhld_fltr_expr: str | None = None,
+            pers_fltr_expr: str | None = None,
         ) -> pd.DataFrame | pd.Series:
         """ Spatially aggregates synthetic persons, by age category.
 
@@ -554,8 +554,8 @@ class MicroSim():
             aggregate_at: str,
             pers_sa: Type[sa.SpatialAggregator] | None,
             *,
-            hhld_fltr_expr: Optional[str] = None,
-            pers_fltr_expr: Optional[str] = None,
+            hhld_fltr_expr: str | None = None,
+            pers_fltr_expr: str | None = None,
         ) -> pd.DataFrame | pd.Series:
         """ Spatially aggregates synthetic persons, by age category.
 
@@ -612,10 +612,10 @@ class MicroSim():
             school_sa: Type[sa.SpatialAggregator] | bool = False,
             weight_expr: str = ems.WEIGHT,
             *,
-            crosstabs: str | List[str] | None = None,
-            crosstab_segments: Dict | List[Dict] | None = None,
-            hhld_fltr_expr: Optional[str] = None,
-            pers_fltr_expr: Optional[str] = None,
+            crosstabs: str | list[str] | None = None,
+            crosstab_segments: dict | list[dict] | None = None,
+            hhld_fltr_expr: str | None = None,
+            pers_fltr_expr: str | None = None,
         ) -> pd.DataFrame | pd.Series:
         """ Spatially aggregates synthetic persons, allowing optional filters.
 
@@ -706,7 +706,7 @@ class MicroSim():
             persons_filter_expr: str | None=None,
             trips_filter_expr: str | None=None,
             tripmodes_filter_expr: str | None=None
-            ) -> Tuple[NDArray[np.uint64], NDArray[np.float64]]:
+            ) -> tuple[NDArray[np.uint64], NDArray[np.float64]]:
         """ Spatially aggregates trips by mode, allowing optional filters. 
     
             Args:
@@ -914,10 +914,10 @@ class MicroSim():
     def calculate_trip_departure_time_profiles(
             self,
             time_interval: int,
-            households_filter_expr: Optional[str]=None,
-            persons_filter_expr: Optional[str]=None,
-            trips_filter_expr: Optional[str]=None,
-            tripmodes_filter_expr: Optional[str]=None
+            households_filter_expr: str | None = None,
+            persons_filter_expr: str | None = None,
+            trips_filter_expr: str | None = None,
+            tripmodes_filter_expr: str | None = None
             ) -> pd.DataFrame:
         """ Spatially aggregates trips by mode, allowing optional filters. 
 
@@ -992,7 +992,10 @@ class MicroSim():
         return trips_by_interval
 
     def _add_timeperiod_to_tripmodes_filter(
-            self, time_period: str, tripmodes_filter_expr: str | None) -> str:
+            self, 
+            time_period: str, 
+            tripmodes_filter_expr: str | None
+        ) -> str:
         """ 
         Either create new or modify existing tripmodes filter to filter trips
         by time period.
