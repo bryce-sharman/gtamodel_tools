@@ -10,8 +10,6 @@ from shapely.geometry import LineString
 from gtamodel_tools.enums.common import TIME_PERIODS as TPS
 
 
-CRS = 'EPSG:4326'
-
 SOURCE_CN = 'source'
 STNID_CN = 'station_id'
 DIR_CN = 'direction'

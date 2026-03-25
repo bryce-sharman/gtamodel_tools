@@ -7,6 +7,8 @@ import pandas as pd
 from pathlib import Path
 from yaml import safe_load
 
+import gtamodel_tools.enums.common as en_cmn
+
 class Config(object):
     """ Class to store configuration file inputs.
 
@@ -87,19 +89,25 @@ class Config(object):
 
         self.traffic_countposts = c.get('traffic_countposts')
         if self.traffic_countposts is not None:
-            cp_df = pd.DataFrame.from_dict(self.traffic_countposts, orient='index')
+            cp_df = pd.DataFrame.from_dict(
+                self.traffic_countposts, orient='index'
+            )
             geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
             self.traffic_countposts = gpd.GeoDataFrame(
-                index=cp_df.index, geometry=geom, crs='EPSG:4326')
+                index=cp_df.index, geometry=geom, crs=en_cmn.WGS_CRS)
 
         self.transit_countposts = c.get('transit_countposts')
         if self.transit_countposts is not None:
-            cp_df = pd.DataFrame.from_dict(self.transit_countposts, orient='index')
+            cp_df = pd.DataFrame.from_dict(
+                self.transit_countposts, orient='index'
+            )
             geom = gpd.points_from_xy(cp_df['longitude'], cp_df['latitude'])
             self.transit_countposts = gpd.GeoDataFrame(
-                index=cp_df.index, data=cp_df['modes'], geometry=geom, crs='EPSG:4326')
-            
-
+                index=cp_df.index, 
+                data=cp_df['modes'], 
+                geometry=geom, 
+                crs=en_cmn.WGS_CRS
+            )
 
         # Used to rename output columns to the GTAModel v4.1-v4.2 standard
         # Only needs to be defined if output columns don't match

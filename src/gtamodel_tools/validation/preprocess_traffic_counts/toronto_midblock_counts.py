@@ -626,8 +626,7 @@ def _calculate_peakhour_volumes(
     ID_CN = en_tmblk.ID_CN
     DIR_CN = en_tmblk.DIR_CN
     TP_CN = TIMEPERIOD_CN
-    RECORDS_PER_HR = MIN_PER_HR // INTERVAL_MINS
-    SHIFT = RECORDS_PER_HR - 1
+    SHIFT = RECORDS_PER_HOUR - 1
     
     if not isinstance(volume_columns, list):
         volume_columns = [volume_columns]
@@ -651,7 +650,7 @@ def _calculate_peakhour_volumes(
     # following flag is False. This is okay as those will be filtered out in 
     # the next step
     indexer = pd.api.indexers.FixedForwardWindowIndexer(
-        window_size=RECORDS_PER_HR)
+        window_size=RECORDS_PER_HOUR)
     rolling_sum_cns = [v_cn + '_rs' for v_cn in volume_columns]
     cnts[rolling_sum_cns] = cnts[volume_columns].rolling(window=indexer).sum()
 
