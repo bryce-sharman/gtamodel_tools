@@ -77,7 +77,6 @@ from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.enums.common as en_cmn
 import gtamodel_tools.enums.validation.traffic.toronto_midblock_counts as en_tmblk
 import gtamodel_tools.enums.validation.traffic.traffic as en_tfc
-import gtamodel_tools.enums.validation.tcl as en_tcl
 
 npdtype = np.dtype
 idx = pd.IndexSlice
@@ -88,6 +87,11 @@ HR_START_CN = 'hr_start'
 MIN_START_CN = 'min_start'
 DLY_TOTAL_VOL_CN = 'daily_total_volume'
 TIMEPERIOD_CN = 'time_period'
+
+MIN_PER_HR = 60
+INTERVAL_MINS = 15
+RECORDS_PER_HOUR = 60 // INTERVAL_MINS
+RECORDS_PER_DAY = 24 * RECORDS_PER_HOUR
 
 
 def read_midblock_counts(
@@ -118,21 +122,18 @@ def read_midblock_counts(
     
     print('Processing raw volume count files')
     for fp in loc.glob(pat_v):
-        print (f'  Processing file {fp.name}') 
         stns, counts = read_midblock_volume_counts(fp, tcl_gdf)
         stns_list.append(stns)
         counts_list.append(counts)
     print('')
     print('Processing raw speed-volume count files')
     for fp in loc.glob(pat_s):
-        print (f'  Processing file {fp.name}') 
         stns, counts = read_midblock_speedvolume_counts(fp, tcl_gdf)
         stns_list.append(stns)
         counts_list.append(counts)
     print('')
     print('Processing raw class-volume count files')
     for fp in loc.glob(pat_c):
-        print (f'  Processing file {fp.name}') 
         stns, counts = read_midblock_classvolume_counts(fp, tcl_gdf)
         stns_list.append(stns)
         counts_list.append(counts)
@@ -170,7 +171,7 @@ def read_midblock_volume_counts(
           Confirm this in the future if using this data at a later date.
 
     """
-    print(f'Reading in volume only counts: {fp}') 
+    print(f'  Reading in volume only counts: {fp}') 
     total_volume_cn = en_tmblk.VOLUME_TOTONLY_CNS[0]
     # Read in the traffic counts from file
     dtypes = deepcopy(en_tmblk.COMMON_DTYPES)
@@ -178,9 +179,10 @@ def read_midblock_volume_counts(
     usecols = list(dtypes.keys())
     cnts = pd.read_csv(fp, usecols=usecols, dtype=dtypes)
 
-    # Identify the stations
+    print('  Identifying count stations.')
     stns = _identify_midblock_count_stations(cnts, tcl_gdf)
     
+    print('  Calculating count summaries.')
     # Process count times from strings to date/time objects and identifies
     # weekday / weekend counts
     cnts = _process_count_times(cnts)
@@ -201,7 +203,7 @@ def read_midblock_volume_counts(
         wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes], axis=1)
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
     f_cnts = _finalize_counts_table(f_cnts, cnts, stns)
-    print('Completed') 
+    print('  Completed') 
     return stns, f_cnts
 
 
@@ -228,7 +230,7 @@ def read_midblock_speedvolume_counts(
         - This data is being updated as of Nov 2025. 
 
     """
-    print(f'Reading in speed-volume only counts: {fp}') 
+    print(f'  Reading in speed-volume only counts: {fp}') 
     total_volume_cn = en_tmblk.VOLUME_TOTONLY_CNS[0]
     dtypes =deepcopy(en_tmblk.COMMON_DTYPES)
     for cn in en_tmblk.VOLUME_SPDCLS_CNS:
@@ -236,9 +238,10 @@ def read_midblock_speedvolume_counts(
     usecols = list(dtypes.keys())
     cnts = pd.read_csv(fp, usecols=usecols, dtype=dtypes)
     
-    # Identify the stations
+    print('  Identifying count stations.')
     stns = _identify_midblock_count_stations(cnts, tcl_gdf)
 
+    print('  Calculating count summaries.')
     # Process count times from strings to date/time objects
     cnts = _process_count_times(cnts)
 
@@ -265,7 +268,7 @@ def read_midblock_speedvolume_counts(
         wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes], axis=1)
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
     f_cnts = _finalize_counts_table(f_cnts, cnts, stns)
-    print('Completed') 
+    print('  Completed') 
     return stns, f_cnts
 
 
@@ -293,7 +296,7 @@ def read_midblock_classvolume_counts(
         - This data was last updated in August 2023.
 
     """
-    print(f'Reading in volume by vehicle class counts: {fp}') 
+    print(f'  Reading in volume by vehicle class counts: {fp}') 
 
     dtypes =deepcopy(en_tmblk.COMMON_DTYPES)
     for cn in en_tmblk.ALL_CLASS_CNS:
@@ -301,9 +304,10 @@ def read_midblock_classvolume_counts(
     usecols = list(dtypes.keys())
     cnts = pd.read_csv(fp, usecols=usecols, dtype=dtypes)
 
-    # Identify the stations
+    print('  Identifying count stations.')
     stns = _identify_midblock_count_stations(cnts, tcl_gdf)
 
+    print('  Calculating count summaries.')
     # Process count times from strings to date/time objects
     cnts = _process_count_times(cnts)
 
@@ -344,7 +348,7 @@ def read_midblock_classvolume_counts(
         wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes], axis=1)
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
     f_cnts = _finalize_counts_table(f_cnts, cnts, stns)
-    print('Completed') 
+    print('  Completed') 
     return stns, f_cnts
 
 
@@ -421,7 +425,7 @@ def _identify_midblock_count_stations(
     # Reverse the line direction when the line geometry cardinal
     # orientation does not match the count direction.
     # Need to do this operation in a projected coordinate system
-    stns = stns.to_crs(en_tmblk.WORKING_CRS)
+    stns = stns.to_crs(en_cmn.COT_CRS)
     stns[CNTRLN_DIR_CN] = stns.geometry.apply(
         lambda x: calc_linestring_orientation(
             x, en_tmblk.AXIS_OFFSET, 'cartesian'))
@@ -435,10 +439,10 @@ def _identify_midblock_count_stations(
                 stns.at[stni, en_cmn.GPD_GEOM_COL].reverse()
         elif stnr[en_tmblk.DIR_CN] != stnr[CNTRLN_DIR_CN]:
             stns.at[stni, XDIR_CN] = True
-            print(f'   Cross-direction mismatch between counts table and link.')
-            print(f'       TCL Centreline ID: {stnr[en_tmblk.CNTRLNID_CN]}')
-            print(f'       Count direction: {stnr[en_tmblk.DIR_CN]}')
-            print()
+            print(f'   Cross-direction mismatch between TCL Centreline ID: '
+                  f'{stnr[en_tmblk.CNTRLNID_CN]} and count direction: '
+                  f'{stnr[en_tmblk.DIR_CN]}'
+            )
             
     # Drop the counts where we cannot match the directions
     n_crossdir_links = stns[XDIR_CN].sum()
@@ -460,7 +464,7 @@ def _identify_midblock_count_stations(
     stns = stns[en_tfc.STN_FIELDS]
     stns = stns.set_index(en_tfc.STN_INDEX_CNS)
     # Convert to final projection system, and we're done
-    return stns.to_crs(en_tfc.CRS)
+    return stns.to_crs(en_cmn.WGS_CRS)
 
 
 def _finalize_counts_table(
@@ -518,15 +522,18 @@ def _calculate_daily_volumes(
     of the day.
     
     Args:
-        cnts: counts table with columns appended by summarize_by_count_dates
-        volume_columns: columns to total
-        colnames: final name for each column in 'volume_columns' input
+        cnts: 
+            counts table with columns appended by summarize_by_count_dates
+        volume_columns: 
+            columns to total
+        colnames: 
+            final name for each column in 'volume_columns' input
             
     Returns:
         pandas.DataFrame with daily volumes with optional filters applied.
         
     """
-    cnts = cnts.copy()
+    n_records_cn = 'n_records'
     if not isinstance(volume_columns, list):
         volume_columns = [volume_columns]
     if not isinstance(colnames, list):
@@ -534,21 +541,21 @@ def _calculate_daily_volumes(
     if len(volume_columns) != len(colnames):
         raise ValueError(
             'volume_columns and colnames must be the same length.')
-
-    n_hours = cnts.groupby([en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN]
-            )[HR_START_CN].nunique()    
-    dly_cnts = cnts.groupby(
-            [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN]
-        )[volume_columns].sum()
-    dly_cnts.loc[n_hours < en_cmn.N_HRS_PER_DAY] = np.nan
-    dly_cnts.columns = colnames
-    return dly_cnts
+        
+    grp_cns = [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN] 
+    agg_funcs = {HR_START_CN: 'count'}
+    for vc in volume_columns:
+        agg_funcs[vc] = 'sum'
+    dly_cnts = cnts.groupby(grp_cns).agg(agg_funcs)
+    dly_cnts.columns = [n_records_cn] + colnames      
+    dly_cnts.loc[dly_cnts[n_records_cn] < RECORDS_PER_DAY, colnames] = np.nan
+    return dly_cnts[colnames]
 
 
 def _calculate_period_volumes(
         cnts: pd.DataFrame, 
         volume_columns: str | list[str],
-        colname_suffixes: str | list[str],
+        colname_prefixes: str | list[str],
     ) -> pd.DataFrame:
     """ Calculates period volumes by station, day and time period. 
     
@@ -557,53 +564,49 @@ def _calculate_period_volumes(
             counts table with columns appended by summarize_by_count_dates
         volume_columns: 
             columns representing the volumes to be summed into period volumes
-        colname_suffixes: 
+        colname_prefixes: 
             final name for each column in 'volume_columns' input, will be 
-            appended to the time period to create the final column name
+            prepended to the time period to create the final column name
             
     Returns:
         pandas.DataFrame with period volumes by station and day.
 
     """
-    cnts = cnts.copy()
+    OBSV_RECORDS_CN = 'observed_records'
+    N_HRS_CN = 'n_hours_in_tp'
+    EXP_RECORDS_CN = 'expected_records'
     if not isinstance(volume_columns, list):
         volume_columns = [volume_columns]
-    if not isinstance(colname_suffixes, list):
-        colname_suffixes = [colname_suffixes]
-    if len(volume_columns) != len(colname_suffixes):
+    if not isinstance(colname_prefixes, list):
+        colname_prefixes = [colname_prefixes]
+    if len(volume_columns) != len(colname_prefixes):
         raise ValueError(
-            'volume_columns and colname_suffixes must be the same length.')
+            'volume_columns and colname_prefixes must be the same length.')
 
     # Sum counts by time period
-    period_cnts = cnts.groupby(
-        [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN, TIMEPERIOD_CN])[
-            volume_columns].sum()
-    period_cnts.columns = colname_suffixes
+    grp_cns = [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN, TIMEPERIOD_CN]
+    agg_funcs = {HR_START_CN: 'count'}
+    for vc in volume_columns:
+        agg_funcs[vc] = 'sum'
+    per_cnts = cnts.groupby(grp_cns).agg(agg_funcs)
+    per_cnts.columns = [OBSV_RECORDS_CN] + colname_prefixes
 
     # Filter out time periods with incomplete counts
-    EXP_HRS_CN = 'expected_hrs'
-    OBSV_HRS_CN = 'observed_hrs'
-    nhrs_by_tp = {}
-    for tp, hrs_in_tp in en_cmn.TIME_PERIOD_HR_RANGES.items():
-        nhrs_by_tp[tp] = len(hrs_in_tp)
-    obsv_hrs_in_tp = cnts.groupby(
-        [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN, TIMEPERIOD_CN])[[
-            HR_START_CN]].nunique() 
-    obsv_hrs_in_tp.columns=[OBSV_HRS_CN]
+    per_cnts[N_HRS_CN] = per_cnts.index.get_level_values(
+        TIMEPERIOD_CN).map(en_cmn.TIME_PERIOD_NHOURS)
+    per_cnts[EXP_RECORDS_CN] = per_cnts[N_HRS_CN] * RECORDS_PER_HOUR
+    per_cnts.loc[per_cnts[OBSV_RECORDS_CN] < per_cnts[EXP_RECORDS_CN]] = np.nan
+    per_cnts = per_cnts[colname_prefixes]
 
-    obsv_hrs_in_tp[EXP_HRS_CN] = obsv_hrs_in_tp.index.get_level_values(
-        TIMEPERIOD_CN).map(nhrs_by_tp)
-    period_cnts.loc[
-        obsv_hrs_in_tp[OBSV_HRS_CN] < obsv_hrs_in_tp[EXP_HRS_CN]] = np.nan
-    f = pd.DataFrame(period_cnts.unstack())  # keep the type hinting happy
+    # Unstack to produce period-level counts
+    f = pd.DataFrame(per_cnts.unstack())  # keep the type hinting happy
     f.columns = ["".join(c) for c in f.columns.to_flat_index()]
     return f
-
 
 def _calculate_peakhour_volumes(
         cnts: pd.DataFrame, 
         volume_columns: str | list[str],
-        colname_suffixes: str | list[str]
+        colname_prefixes: str | list[str]
     ) -> pd.DataFrame:
     """ Calculates peak-hour volumes by station, day and time period.  
     Args:
@@ -611,61 +614,54 @@ def _calculate_peakhour_volumes(
             counts table with columns appended by summarize_by_count_dates
         volume_columns: 
             columns to total
-        colname_suffixes: 
-            final name for each column in 'volume_columns' input
+        colname_prefixes: 
+            final name for each column in 'volume_columns' input, will be 
+            prepended to the time period to create the final column name
             
     Returns:
         pandas.DataFrame with peak-hour volumes.
 
-    """      
+    """  
+    IN_TP_CN = 'following_in_tp'
+    ID_CN = en_tmblk.ID_CN
+    DIR_CN = en_tmblk.DIR_CN
+    TP_CN = TIMEPERIOD_CN
+    RECORDS_PER_HR = MIN_PER_HR // INTERVAL_MINS
+    SHIFT = RECORDS_PER_HR - 1
+    
     if not isinstance(volume_columns, list):
         volume_columns = [volume_columns]
-    if not isinstance(colname_suffixes, list):
-        colname_suffixes = [colname_suffixes]
-    if len(volume_columns) != len(colname_suffixes):
+    if not isinstance(colname_prefixes, list):
+        colname_prefixes = [colname_prefixes]
+    if len(volume_columns) != len(colname_prefixes):
         raise ValueError(
-            'volume_columns and colname_suffixes  must be the same length.')
-    
+            'volume_columns and colname_prefixes  must be the same length.')
     cnts = cnts.copy()  # to not mess with the original dataframe
 
-    id_cn = en_tmblk.ID_CN
-    dir_cn = en_tmblk.DIR_CN
-    tp_cn = TIMEPERIOD_CN
-    
     # Mark records that have 3 successive counts from same station and
     # direction. (Given the Toronto midblock use hard-coded 15-minute count 
     # intervals, the original interval + 3 more intervals gives an hour 
     # duration.
-    cnts['has_following_counts'] = True
-    cnts.loc[
-            cnts[id_cn] != cnts[id_cn].shift(-3), 
-            'has_following_counts'
-        ] = False
+    cnts[IN_TP_CN] = True
+    cnts.loc[cnts[ID_CN] != cnts[ID_CN].shift(-SHIFT), IN_TP_CN] = False
+    cnts.loc[cnts[DIR_CN] != cnts[DIR_CN].shift(-SHIFT), IN_TP_CN] = False
+    cnts.loc[cnts[TP_CN] != cnts[TP_CN].shift(-SHIFT), IN_TP_CN] = False
 
-    cnts.loc[
-            cnts[dir_cn] != cnts[dir_cn].shift(-3), 
-            'has_following_counts'
-        ] = False
-    cnts.loc[
-            cnts[tp_cn] != cnts[tp_cn].shift(-3), 
-            'has_following_counts'
-        ] = False
+    # Rolling sum to hourly volumes -- the sum will be incorrect where the has 
+    # following flag is False. This is okay as those will be filtered out in 
+    # the next step
+    indexer = pd.api.indexers.FixedForwardWindowIndexer(
+        window_size=RECORDS_PER_HR)
+    rolling_sum_cns = [v_cn + '_rs' for v_cn in volume_columns]
+    cnts[rolling_sum_cns] = cnts[volume_columns].rolling(window=indexer).sum()
 
-    # Sum to hourly volumes -- the sum will be incorrect where the has following
-    # flag is False. This is okay as those will be filtered out in the next 
-    # step
-    for v_cn in volume_columns:
-        cnts[v_cn + '_hr'] = cnts[v_cn]
-        for i in range(1, 4):
-            cnts[v_cn + '_hr'] += cnts[v_cn].shift(-i)
     # Filter by has following counts flag
-    cnts = cnts.loc[cnts['has_following_counts']]
+    cnts = cnts.loc[cnts[IN_TP_CN]]
+
     # Find the max of each hourly volume column, this is the peak-hour volume
-    pkhr_cns = [v_cn + '_hr' for v_cn in volume_columns]
-    pkhr_df = cnts.groupby(
-            [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN, TIMEPERIOD_CN]
-        )[pkhr_cns].max()
-    pkhr_df.columns = colname_suffixes
+    grp_cns = [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN, TIMEPERIOD_CN]
+    pkhr_df = cnts.groupby(grp_cns)[rolling_sum_cns].max()
+    pkhr_df.columns = colname_prefixes
     f = pd.DataFrame(pkhr_df.unstack())  # keep the type hinting happy
     f.columns = ["".join(c) for c in f.columns.to_flat_index()]
     return f

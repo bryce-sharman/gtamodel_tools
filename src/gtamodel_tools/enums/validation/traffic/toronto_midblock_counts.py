@@ -3,7 +3,6 @@
 from numpy import dtype as npdtype
 
 SOURCE = 'TMBK'
-WORKING_CRS = "EPSG:2952"
 AXIS_OFFSET = 17  # degrees
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 

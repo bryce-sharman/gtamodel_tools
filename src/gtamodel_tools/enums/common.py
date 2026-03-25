@@ -11,6 +11,11 @@ TIME_PERIOD_HR_RANGES = {
     'EV': list(range(19, 24)),  # 19:00 to 23:59
     'ON': list(range(0, 6))     # 00:00 to 5:59
 }
+    
+TIME_PERIOD_NHOURS = {}
+for tp, hrs_in_tp in TIME_PERIOD_HR_RANGES.items():
+    TIME_PERIOD_NHOURS[tp] = len(hrs_in_tp)
+
 TIME_PERIOD_HR_MAPPING = {
     hr: tp for tp, hrs in TIME_PERIOD_HR_RANGES.items() for hr in hrs}
 
@@ -26,3 +31,5 @@ OPPOSITE_DIR = {
 }
 GPD_GEOM_COL = 'geometry'
 N_HRS_PER_DAY = 24
+COT_CRS = 'EPSG:2952'
+WGS_CRS = 'EPSG:4326'
