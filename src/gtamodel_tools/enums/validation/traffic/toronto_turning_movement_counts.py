@@ -44,7 +44,7 @@ ID_CN = 'count_id'
 LOCNAME_CN = 'location_name'
 LON_CN = 'longitude'
 LAT_CN = 'latitude'
-CNTRLNTYPE_CN = 'centreline_type'
+CNTTYPE_CN = 'centreline_type'
 CNTRLNID_CN = 'centreline_id'
 STTIME_CN = 'start_time'
 ENDTIME_CN = 'end_time'
@@ -53,51 +53,51 @@ DTYPES = {
     LOCNAME_CN: npdtype('U'),     # Unicode string
     LON_CN: npdtype('f8'),        # 64-bit (double-precision) float
     LAT_CN: npdtype('f8'),        # 64-bit (double-precision) float
-    CNTRLNTYPE_CN: npdtype('u1'), # This is 1 or 2, so uint8 is sufficient
+    CNTTYPE_CN: npdtype('u1'), # This is 1 or 2, so uint8 is sufficient
     CNTRLNID_CN: npdtype('u4'),   # 32-bit unsigned int
     STTIME_CN: npdtype('U'),      # 
     ENDTIME_CN: npdtype('U'),     # 
 }
 
 APPROACHES = ['n', 's', 'e', 'w']
-VEHICLE_CLASSES = ['cars', 'truck', 'bus']
-ACTIVE_MODE_CLASSES = ['peds', 'bike']
+VEHICLE_MODES = ['cars', 'truck', 'bus']
+ACTIVE_MODES = ['peds', 'bike']
 MOVEMENTS = ['r', 't', 'l']  # for cars, trucks, buses only
 MOVEMENT_CNS = []
 for a in APPROACHES:
-    for v in VEHICLE_CLASSES:
+    for v in VEHICLE_MODES:
         for m in MOVEMENTS:
             col_name = f'{a}_appr_{v}_{m}'
             DTYPES[col_name] = npdtype('f4') 
             MOVEMENT_CNS.append(col_name)
-    for v in ACTIVE_MODE_CLASSES:
+    for v in ACTIVE_MODES:
         col_name = f'{a}_appr_{v}'
         DTYPES[col_name] = npdtype('f4')
         MOVEMENT_CNS.append(col_name)
 
-REF_CENTERLINE_LAYER = 1
-REF_INTERSECTION_LAYER = 2
+TYPE_CENTERLINE = 1
+TYPE_INTERSECTION = 2
 
 # Intersection centreline_id to leg centreline_id mapping file
-INTSC_CNTRLNID_CN = 'intersection_centreline_id'
-LEG_CNTRLNID_CN = 'leg_centreline_id'
+INTSC_CN = 'intersection_centreline_id'
+LEG_CNTRLN_CN = 'leg_centreline_id'
 LEG_DIR_CN = 'leg'
 LEG_STNAME_CN = 'street_name'
 INTSC_MAPPING_DTYPES = {
-    INTSC_CNTRLNID_CN: npdtype('u4'),
-    LEG_CNTRLNID_CN: npdtype('u4'),
+    INTSC_CN: npdtype('u4'),
+    LEG_CNTRLN_CN: npdtype('u4'),
     LEG_DIR_CN: npdtype('U'),
     LEG_STNAME_CN: npdtype('U')
 }
-INTSC_CENTRNLN_CNS = [
-    INTSC_CNTRLNID_CN, LEG_CNTRLNID_CN, LEG_DIR_CN, LEG_STNAME_CN]
-OUTBOUND_DIR_DICT = {
+INTSC_CENTRNLN_CNS = [INTSC_CN, LEG_CNTRLN_CN, LEG_DIR_CN]
+
+OUT_DIR_DICT = {
     'north': 'NB',
     'south': 'SB',
     'east': 'EB',
     'west': 'WB'
 }
-INBOUND_DIR_DICT = {
+IN_DIR_DICT = {
     'north': 'SB',
     'south': 'NB',
     'east': 'WB',

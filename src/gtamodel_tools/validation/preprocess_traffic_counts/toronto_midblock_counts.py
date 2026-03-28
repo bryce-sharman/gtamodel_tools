@@ -470,7 +470,7 @@ def _identify_midblock_count_stations(
 def _finalize_counts_table(
         f_cnts: pd.DataFrame, o_cnts: pd.DataFrame, stns: pd.DataFrame
     ) -> pd.DataFrame:
-    """ Formats the counts table into its final format.
+    """ Formats the midblock counts table into its final format.
 
     Args:
         f_cnts: Table with processed daily, peak-period
