@@ -38,14 +38,23 @@ CNTRLN_OPPDIR_CN = 'cntrln_oppdir'
 IN_CN = 'inbound'
 OUT_CN = 'outbound'
 INOUT_CN = 'in_out'
-
+MOVEMENT_CN = 'movement'
 APPROACH_CN = 'approach'
 MODE_CN = 'mode'
 TURN_CN = 'turn'
 DEPARTURE_CN = 'departure'
 VOLUME_CN = 'volume'
 
+TURN_TO_DEPARTURE = {
+    "n": {"l": "e", "t": "s", "r": "w"},
+    "s": {"l": "w", "t": "n", "r": "e"},
+    "e": {"l": "s", "t": "w", "r": "n"},
+    "w": {"l": "n", "t": "e", "r": "s"},
+}
+DIR_LABELS = {"n": "north", "s": "south", "e": "east", "w": "west"}
+
 INTERVAL_MINS = 15
+INTERVAL_SECS = 15 * 60
 RECORDS_PER_HOUR = 60 // INTERVAL_MINS
 RECORDS_PER_DAY = 24 * RECORDS_PER_HOUR
 
@@ -67,51 +76,98 @@ DIR_LABEL_MAPPING = {
     'w': 'west'
 }
 
-def _process_count_times(cnts: pd.DataFrame) -> pd.DataFrame:
-    """ Pre-processes time stamps from Toronto Midblock counts. 
-    
+
+def read_turning_movement_counts(
+        cnts_fp: PathLike, 
+        intsc_leg_fp: PathLike,
+        tcl_gdf: gpd.GeoDataFrame,
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    """ Reads City of Toronto Midblock count raw volume from CSV file.
+
     Args:
-        cnts: original Toronto Midblock counts data read from files
+        cnts_fp: 
+            The path to the counts data file.
+        intsc_leg_fp: 
+            Path to the file containing the mapping between intersection
+            centreline_id, and the centreline_id corresponding to each
+            leg from that intersection.
+        tcl_gdf: 
+            GeoDataFrame containing Toronto Centreline Network
 
     Returns:
-        Modified `cnts` DataFrame with processed time columns.
+        - GeoDataFrame of count stations
+        - DataFrame of count data
+
+    Notes:
+        - Count data can be downloaded from Toronto Open Data Portal:
+          https://open.toronto.ca/dataset/traffic-volumes-midblock-vehicle-speed-volume-and-classification-counts/
+        - See the the file svc_data_dictionary on the Open Data Portal for a
+          a description of the data fields.
+        - The files are svc_raw_data_volume_[start year]_[end year].csv
+        - This data only appears to be available up until August 2022. 
+          Confirm this in the future if using this data at a later date.
+        - The mapping from intersection centreline_id to street centreline_id 
+          was provided by Transportation Services' 
+          Transportation Data & Analytics Unit.
 
     """
-    cnts = cnts.copy()
-    cnts[en_ttmc.STTIME_CN] = pd.to_datetime(
-        cnts[en_ttmc.STTIME_CN], format=en_ttmc.TIME_FORMAT)
-    cnts[en_ttmc.ENDTIME_CN] = pd.to_datetime(
-        cnts[en_ttmc.ENDTIME_CN], format=en_ttmc.TIME_FORMAT)
-    cnts[en_tfc.DATE_CN] = cnts[en_ttmc.STTIME_CN].dt.date
-    dayofweek = cnts[en_tfc.DATE_CN].apply(lambda x: x.weekday())
-    cnts[IS_WKDAY_CN] = True
-    cnts.loc[dayofweek.isin([5, 6]), IS_WKDAY_CN] = False
-    cnts[HR_START_CN] = cnts[en_ttmc.STTIME_CN].dt.hour
-    cnts[MIN_START_CN] = cnts[en_ttmc.STTIME_CN].dt.minute
-    # Map the time period to the counts table
-    cnts[TIMEPERIOD_CN] = cnts[HR_START_CN].map(en_cmn.TIME_PERIOD_HR_MAPPING)
-    return cnts.sort_values([en_ttmc.ID_CN, en_ttmc.STTIME_CN])
-
-def _identify_centreline_stations(
-        cnts: pd.DataFrame, 
-        tcl_gdf: gpd.GeoDataFrame
-    ) -> None:
-    # Centreline recorded counts 
-    # 
-    #  In the 2020-2029 data, only 2.7% of TMC counts are midblock counts
-    #  Given their relative paucity and that they are harder to 
-    #  process, do not process these now.
+    cnts = _read_tmc_counts(cnts_fp)
+    intsc_legs, street_names = _read_intersection_legs(intsc_leg_fp)
     
-    # Centreline cnts procedure
-    #  1. Find unique centreline_id[s]
-    #  For each centreline ID
-    #    - find vertex closest to the stop location
-    #    - identify all other roads coming from that vertex
-    #    - calculate orientation for all lines 
-    #    - relate each line to 
-    print('  Not currently identifying stations for Toronto centreline counts.'
-          ' Processing for these counts may be added later.')
-    return None
+    # The TMC counts centreline_id can refer to either the centreline layer
+    # denoted by centreline_type = 1, or by the intersection layer, which is
+    # denoted by centreline_type = 2.
+    c_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_CENTERLINE]
+    i_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_INTERSECTION]
+    print(f'    {len(c_cnts)} count records are referenced by centreline. ')
+    print(f'    {len(i_cnts)} count records are referenced by intersection.')
+
+    # Identify unique count stations
+    _identify_centreline_stations(c_cnts, tcl_gdf)
+    stns, intsc_stn_df = _identify_intersection_stations(
+        i_cnts, intsc_legs, tcl_gdf, street_names)
+
+    # Process count times from strings to date/time objects and identifies
+    # weekday / weekend counts
+    i_cnts = _process_count_times(i_cnts)
+
+    # Melt from wide to long format
+    id_cols = [en_ttmc.ID_CN, en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN,
+               en_ttmc.STTIME_CN, IS_WKDAY_CN, HR_START_CN, 
+               MIN_START_CN, TIMEPERIOD_CN]
+    cnts_long = i_cnts[id_cols + en_ttmc.MOVEMENT_CNS].melt(
+        id_vars=id_cols,
+        value_vars=en_ttmc.MOVEMENT_CNS,
+        var_name=MOVEMENT_CN,
+        value_name=VOLUME_CN,
+    )
+    cnts_long[VOLUME_CN] = pd.to_numeric(
+        cnts_long[VOLUME_CN], errors="coerce").fillna(0)
+
+    # Parse approach and departure directions
+    cnts_long = _parse_mode_approach_departure_directions(cnts_long)
+
+    # Remove pedestrian and cycling modes -- at least for now
+    # Check that the departure column name always has a value
+    print('  Removing non-motorized modes.')
+    modes_to_keep = [k for k in TMC_MODE_MAPPING.values()]
+    cnts_long = cnts_long.loc[cnts_long[MODE_CN].isin(modes_to_keep)]
+    if (cnts_long[DEPARTURE_CN] == '').sum() > 0:
+        raise RuntimeError('   Blank departure direction for motorized mode.')
+    
+    print('  Calculating weekday and weekend daily volumes')
+    cnts_wkday = cnts_long.loc[cnts_long[IS_WKDAY_CN]]
+    cnts_wkend = cnts_long.loc[~cnts_long[IS_WKDAY_CN]]
+    wkday = _calculate_daily_volumes(cnts_wkday, 'WKDAY')
+    wkend = _calculate_daily_volumes(cnts_wkend, 'WKEND')
+
+    print('  Calculating time-period and peak-hour volumes')
+    per = _calculate_period_volumes(cnts_wkday, 'PER')
+    pkhr = _calculate_pkhr_volumes(cnts_wkday, 'PKHR')
+
+    combined = pd.concat([wkday, wkend, per, pkhr], axis=1) 
+    final_cnts = _finalize_counts_table(combined, intsc_stn_df)
+    return stns, final_cnts
 
 
 def _read_tmc_counts(cnts_fp: PathLike) -> pd.DataFrame:
@@ -218,10 +274,35 @@ def _merge_tcl_geometries(
     n_cross_dir = fltr_cross_dir.sum()
     print(f'    {n_cross_dir} in/out movements found where TCL geometry '
           f'cardinal direction does not match count direction.')
-    print('Removing these intersection legs as they cannot be mapped to a '
+    print('    Removing these intersection legs as they cannot be mapped to a '
           'link geometry.')
     gdf = gdf.loc[~fltr_cross_dir]
     return gdf.drop([CNTRLN_DIR_CN, CNTRLN_OPPDIR_CN], axis=1)
+
+
+def _identify_centreline_stations(
+        cnts: pd.DataFrame, 
+        tcl_gdf: gpd.GeoDataFrame
+    ) -> None:
+    """ 
+    Identifies unique count stations from road-based turning movement counts.
+
+    Not yet implemented: 
+
+    Notes:
+        In the 2020-2029 data, only 2.7% of TMC counts are midblock counts
+        Given their relatively few entries and that they are harder to 
+        process, do not process these now.
+        
+        Centreline cnts procedure
+        1. Find unique centreline_id[s]
+        For each centreline ID
+        - find vertex closest to the stop location
+        - identify all other roads coming from that vertex
+        - calculate orientation for all lines 
+        - relate each line to 
+    """
+    pass
 
 
 def _identify_intersection_stations(
@@ -230,7 +311,8 @@ def _identify_intersection_stations(
         tcl_gdf: gpd.GeoDataFrame,
         street_names: pd.Series
     ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
-    """ Identifies unique count stations from turning movement counts.
+    """ 
+    Identifies unique count stations from intersection turning movement counts.
 
     Count stations are defined by Toronto street centreline_id and
     direction (one of 'NB', 'EB', 'WB', 'SB')
@@ -271,7 +353,7 @@ def _identify_intersection_stations(
             for that station, which is a bonus.
 
     """
-    print('  Identifying road-based count stations')
+    print('  Identifying intersection-based count stations')
     # Filter intesections to those included in counts file
     unique_intersections = cnts[en_ttmc.CNTRLNID_CN].unique()
     intsc_legs = intsc_legs[
@@ -294,7 +376,7 @@ def _identify_intersection_stations(
     # It is the count data that contains the intersection lat, lon 
     # and description. Merge those in here, alongside the centreline
     # streetnames
-    print('  Merging intersection names and locations from counts files.')
+    print('    Merging intersection names and locations from counts files.')
     uis = cnts.groupby(en_ttmc.CNTRLNID_CN)[[
         en_ttmc.LOCNAME_CN, en_ttmc.LAT_CN, en_ttmc.LON_CN]].first()
     gdf2 = gdf.merge(
@@ -325,14 +407,14 @@ def _identify_intersection_stations(
     
     # Create the stations and the mapping between movements 
     # (source-intersection-leg-inout) and station (source-centreline-direction)
-    print('  Identifying count stations from intersection inbound/outbound legs')
+    print('    Identifying count stations from intersection in/out legs')
     gdf2[en_tfc.SOURCE_CN] = en_ttmc.SOURCE
     stns = gdf2.groupby(
         [en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN])[[
             en_tfc.STN_LAT_CN, en_tfc.STN_LON_CN, 
             en_cmn.GPD_GEOM_COL, en_tfc.STN_DESC_CN]].first()
     stns = gpd.GeoDataFrame(stns, geometry=en_cmn.GPD_GEOM_COL, crs=gdf2.crs)
-    print(f'  {len(stns)} stations identified from intersection-leg mapping')
+    print(f'    {len(stns)} stations identified from intersection-leg mapping')
     intsc_stn_df = gdf2.set_index(
         [en_tfc.SOURCE_CN, en_ttmc.INTSC_CN, en_ttmc.LEG_DIR_CN, INOUT_CN], 
         drop=False    # Need the leg direction later on
@@ -340,344 +422,69 @@ def _identify_intersection_stations(
 
     # Project stations to WGS84 as this is the count standards
     stns = stns.to_crs(en_cmn.WGS_CRS)
-    print("  Completed station identification.")
+    print("    Completed station identification.")
     return stns, intsc_stn_df
 
 
-def _combine_in_out_daily_counts(
-        in_df: pd.DataFrame, 
-        out_df: pd.DataFrame, 
-        in_col_label: str,
-        out_col_label: str,
-        label: str
-    ) -> pd.DataFrame:
-    """ Combine the inbound and outbound counts into a single dataframe. """
-    df = pd.concat([in_df, out_df], axis=1)
-    mode_cols = [v for v in TMC_MODE_MAPPING.values()] + ['TOT']
-    for mode in mode_cols:
-        base_cn = f'{mode}_{label}'
-        in_cn = f'{mode}_{in_col_label}'
-        out_cn = f'{mode}_{out_col_label}'
-        cols_to_sum = [in_cn, out_cn]
-        df[base_cn] = df[cols_to_sum].sum(axis=1, skipna=True)
-        # Because we did a sum with skipna = True, the sum is when 
-        # both are NAs. go back and rewrite those
-        fltr_in = pd.isna(df[in_cn])
-        fltr_out = pd.isna(df[out_cn])
-        df.loc[fltr_in & fltr_out, base_cn] = np.nan
-        df = df.drop([in_cn, out_cn], axis=1)
-    return df
-
-
-def _combine_in_out_period_counts(
-        in_df: pd.DataFrame, 
-        out_df: pd.DataFrame, 
-        in_col_label: str,
-        out_col_label: str,
-        label: str
-    ) -> pd.DataFrame:
-    """ 
-    Combine the inbound and outbound time-period-separated counts into a 
-    single dataframe. 
-    
-    """
-    df = pd.concat([in_df, out_df], axis=1)
-
-    mode_cols = [v for v in TMC_MODE_MAPPING.values()] + ['TOT']
-    for mode in mode_cols:
-        for tp in en_cmn.TIME_PERIODS:
-            base_cn = f'{mode}_{label}_{tp}'
-            in_cn = f'{mode}_{in_col_label}_{tp}'
-            out_cn = f'{mode}_{out_col_label}_{tp}'
-            cols_to_sum = [in_cn, out_cn]
-            df[base_cn] = df[cols_to_sum].sum(axis=1, skipna=True)
-            # Because we did a sum with skipna = True, the sum 0 is when 
-            # both are NAs, go back and rewrite those
-            fltr_in = pd.isna(df[in_cn])
-            fltr_out = pd.isna(df[out_cn])
-            df.loc[fltr_in & fltr_out, base_cn] = np.nan
-            df = df.drop([in_cn, out_cn], axis=1)
-    return df
-
-
-def _calculate_daily_volumes(
-        cnts: pd.DataFrame,
-        direction:str,
-        colname_description: str
-    ) -> pd.DataFrame:
-    """ Calculate the daily_volume for inbound traffic to intersections.
-        
-    Will return a NaN if count information is not available for all 24 hours
-    of the day.
+def _process_count_times(cnts: pd.DataFrame) -> pd.DataFrame:
+    """ Pre-processes time stamps from Toronto Midblock counts. 
     
     Args:
-        cnts: 
-            Turning movement volumes in long (melted) format.
-        direction:
-            One of 'inbound' or 'outbound'
-        colname_description: 
-            final name, will be appended with the mode to create 
-            the final column name.
+        cnts: original Toronto Midblock counts data read from files
+
     Returns:
-        pandas.DataFrame
-            Counts by intersection approach leg
-             Index is ['centreline_id', 'leg', 'in-out', 'date']
-             Columns are volumes by mode. For example, if
-             e.g. if colname_description is 'WKDAY, columns will be
-            'CAR_WKDAY', 'BUS_WKDAY', 'TRK_WKDAY', 'TOT_WKDAY'
+        Modified `cnts` DataFrame with processed time columns.
 
     """
-    n_records_cn = 'n_records'
-    exp_ncnts = 3 * RECORDS_PER_DAY
-    # This procedure assumes the there are always 3 turns per approach 
-    # in the melted counts table. Check to make sure this is the case.
-    if direction == 'inbound':
-        cnts = cnts.copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, MODE_CN]
-        final_rename_dict = {
-            en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-            APPROACH_CN: en_ttmc.LEG_DIR_CN,
-            VOLUME_CN: colname_description
-        }
-        inout_dir = INTSC_INBOUND_CN
-    elif direction == 'outbound':
-        cnts = cnts.loc[cnts[DEPARTURE_CN] != ''].copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, MODE_CN]
-        final_rename_dict = {
-            en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-            DEPARTURE_CN: en_ttmc.LEG_DIR_CN,
-            VOLUME_CN: colname_description
-        }
-        inout_dir = INTSC_OUTBOUND_CN
-    else:
-        raise ValueError("direction must be either 'inbound' or 'outbound'")
+    print('  Parsing count start/end times')
+    cnts = cnts.copy()
+    cnts[en_ttmc.STTIME_CN] = pd.to_datetime(
+        cnts[en_ttmc.STTIME_CN], format=en_ttmc.TIME_FORMAT)
+    cnts[en_ttmc.ENDTIME_CN] = pd.to_datetime(
+        cnts[en_ttmc.ENDTIME_CN], format=en_ttmc.TIME_FORMAT)
     
-    # Sum daily counts and number of observations
-    agg_funcs = {
-        HR_START_CN: 'count',
-        VOLUME_CN: 'sum'
-    }
-    dly_cnts = cnts.groupby(grpby_index_cols).agg(agg_funcs)
-    dly_cnts.columns = [n_records_cn, VOLUME_CN]
-    # Filter observations that don't span the whole day
-    dly_cnts.loc[dly_cnts[n_records_cn] < exp_ncnts] = np.nan
+    # Check that the interval is the expected 15 minutes
+    intvl = (cnts[en_ttmc.ENDTIME_CN] - cnts[en_ttmc.STTIME_CN]).dt.seconds
+    correct_intvl = intvl == INTERVAL_MINS * 60
+    cnts = cnts.loc[correct_intvl]
+    cnts = cnts.drop(en_ttmc.ENDTIME_CN, axis=1)
+
+    # Identify weekday vs weekend counts
+    cnts[en_tfc.DATE_CN] = cnts[en_ttmc.STTIME_CN].dt.date
+    dayofweek = cnts[en_tfc.DATE_CN].apply(lambda x: x.weekday())
+    cnts[IS_WKDAY_CN] = True
+    cnts.loc[dayofweek.isin([5, 6]), IS_WKDAY_CN] = False
+
+    # Map the time period to the counts table
+    cnts[HR_START_CN] = cnts[en_ttmc.STTIME_CN].dt.hour
+    cnts[MIN_START_CN] = cnts[en_ttmc.STTIME_CN].dt.minute
+    cnts[TIMEPERIOD_CN] = cnts[HR_START_CN].map(en_cmn.TIME_PERIOD_HR_MAPPING)
+    return cnts.sort_values([en_ttmc.ID_CN, en_ttmc.STTIME_CN])
 
 
-    dly_cnts = dly_cnts.reset_index()
-    dly_cnts = dly_cnts.drop([n_records_cn], axis=1)
-    # add the in-out direction
-    dly_cnts[INOUT_CN] = inout_dir   
-    # Remove pedestrian and cycling modes -- at least for now
-    modes_to_keep = [k for k in TMC_MODE_MAPPING.keys()]
-    dly_cnts = dly_cnts.loc[dly_cnts[MODE_CN].isin(modes_to_keep)]
-    dly_cnts[MODE_CN] = dly_cnts[MODE_CN].map(TMC_MODE_MAPPING)
-
-    # Unstack by mode to convert to wide format
-    dly_cnts = dly_cnts.rename(final_rename_dict, axis=1)
-    dly_cnts = dly_cnts.set_index(COUNTS_INDEX)
-    f = dly_cnts.unstack(MODE_CN)
-    # Calculate the total volume
-    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
-    # Convert columns to final format (mode_label)
-    f.columns = f.columns.swaplevel()
-    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
-
-    return f
-
-def _calculate_period_volumes(
-        cnts: pd.DataFrame, 
-        direction:str,
-        colname_description: str
-    ) -> pd.DataFrame:
-    """ Calculates period volumes by station, day and time period. 
-    
-    Args:
-        cnts: 
-            Turning movement volumes in long (melted) format.
-        direction:
-            One of 'inbound' or 'outbound'
-        colname_description: 
-            Label that is added to the columns in conjunction with
-            the mode and time period.
-    Returns:
-        Counts by intersection leg, mode and time period.
-             - Index is ['centreline_id', 'leg', 'in-out', 'date']
-             - Columns are volumes by mode and time period. For example, if
-               e.g. if colname_description is 'PER, columns will be
-               'CAR_PER_AM', 'CAR_PER_MD', ...
-
+def _parse_mode_approach_departure_directions(
+        cnts_l: pd.DataFrame) -> pd.DataFrame:
     """
-    N_HRS_CN = 'n_hours_in_tp'
-    EXP_RECORDS_CN = 'expected_records'
-    OBSV_RECORDS_CN = 'observed_records'
-
-    if direction == 'inbound':
-        cnts = cnts.copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, 
-            MODE_CN, TIMEPERIOD_CN
-        ]
-        final_rename_dict = {
-            en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-            APPROACH_CN: en_ttmc.LEG_DIR_CN,
-            VOLUME_CN: colname_description
-        }
-        inout_dir = INTSC_INBOUND_CN
-    elif direction == 'outbound':
-        cnts = cnts.loc[cnts[DEPARTURE_CN] != ''].copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, 
-            MODE_CN, TIMEPERIOD_CN
-        ]
-        final_rename_dict = {
-            en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-            DEPARTURE_CN: en_ttmc.LEG_DIR_CN,
-            VOLUME_CN: colname_description
-        }
-        inout_dir = INTSC_OUTBOUND_CN
-    else:
-        raise ValueError("direction must be either 'inbound' or 'outbound'")
-
-    # Sum count volumes and number of counts
-    agg_funcs = {
-        HR_START_CN: 'count',
-        VOLUME_CN: 'sum'
-    }
-    per_cnts = cnts.groupby(grpby_index_cols).agg(agg_funcs)
-    per_cnts.columns = [OBSV_RECORDS_CN, VOLUME_CN]
-
-    # Filter out time periods with incomplete counts
-    per_cnts[N_HRS_CN] = \
-        per_cnts.index.get_level_values(TIMEPERIOD_CN).map(
-            en_cmn.TIME_PERIOD_NHOURS)
-    per_cnts[EXP_RECORDS_CN] = per_cnts[N_HRS_CN] * RECORDS_PER_HOUR * 3
-    per_cnts.loc[
-            per_cnts[OBSV_RECORDS_CN] < per_cnts[EXP_RECORDS_CN],
-            VOLUME_CN
-        ] = np.nan
-    per_cnts = per_cnts.reset_index()
-    per_cnts = per_cnts.drop([EXP_RECORDS_CN, OBSV_RECORDS_CN, N_HRS_CN], axis=1)
-    # add the in-out direction
-    per_cnts[INOUT_CN] = inout_dir   
-    # Remove pedestrian and cycling modes -- at least for now
-    modes_to_keep = [k for k in TMC_MODE_MAPPING.keys()]
-    per_cnts = per_cnts.loc[per_cnts[MODE_CN].isin(modes_to_keep)]
-    per_cnts[MODE_CN] = per_cnts[MODE_CN].map(TMC_MODE_MAPPING)
-
-
-    per_cnts = per_cnts.rename(final_rename_dict, axis=1)
-    per_cnts = per_cnts.set_index(COUNTS_INDEX + [TIMEPERIOD_CN])
-  
-    # Unstack by mode to convert to wide format
-    f = pd.DataFrame(per_cnts.unstack(MODE_CN)) 
-    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
-    f.columns.names = ['label', MODE_CN]
-    # Now unstack the time period, then swap column levels to
-    # mode, label, time period
-    f = pd.DataFrame(f.unstack(TIMEPERIOD_CN))
-    f.columns = f.columns.swaplevel('label', MODE_CN)
-    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
-    return f
-
-
-def _calculate_pkhr_volumes(
-        cnts: pd.DataFrame,
-        direction:str,
-        colname_description: str
-    ) -> pd.DataFrame:
-    """Return peak 60-minute windows from interval data within each group.
-    
-    Args:
-
-        cnts: 
-            Turning movement volumes in long (melted) format.
-        direction:
-            One of 'inbound' or 'outbound'
-        colname_description: 
-            Label that is added to the columns in conjunction with
-            the mode and time period.
-    Returns:
-        Counts by intersection leg, mode and time period.
-             - Index is ['centreline_id', 'leg', 'in-out', 'date']
-             - Columns are volumes by mode and time period. For example, if
-               e.g. if colname_description is 'PKHR, columns will be
-               'CAR_PKHR_AM', 'CAR_PKHR_MD', ...
-    Assumes a rolling window of 60 minutes composed of consecutive intervals.
-    For 15-minute data, this is 4 intervals.
+    Parse mode, and approach and departure directions from melted column names. 
     """
-    IN_TP_CN = 'following_in_tp'
-    ID_CN = en_ttmc.ID_CN
-    TP_CN = TIMEPERIOD_CN
-    SHIFT = RECORDS_PER_HOUR - 1
-    ROLLING_VOL_CN = VOLUME_CN + '_rs'
-    final_rename_dict = {
-        en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-        ROLLING_VOL_CN: colname_description
-    }
     
-    if direction == 'inbound':
-        cnts = cnts.copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, 
-            MODE_CN, TIMEPERIOD_CN
-        ]
-        final_rename_dict[APPROACH_CN] = en_ttmc.LEG_DIR_CN
-        inout_dir = INTSC_INBOUND_CN
-    elif direction == 'outbound':
-        cnts = cnts.loc[cnts[DEPARTURE_CN] != ''].copy()
-        grpby_index_cols = [
-            en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, 
-            MODE_CN, TIMEPERIOD_CN
-        ]
-        final_rename_dict[DEPARTURE_CN] = en_ttmc.LEG_DIR_CN
-        inout_dir = INTSC_OUTBOUND_CN
-    else:
-        raise ValueError("direction must be either 'inbound' or 'outbound'")
-    
-    # Mark records that have 3 successive counts from same station and
-    # direction. (Given the Toronto midblock use hard-coded 15-minute count 
-    # intervals, the original interval + 3 more intervals gives an hour 
-    # duration.
-    cnts[IN_TP_CN] = True
-    cnts.loc[cnts[ID_CN] != cnts[ID_CN].shift(-SHIFT), IN_TP_CN] = False
-    cnts.loc[cnts[TP_CN] != cnts[TP_CN].shift(-SHIFT), IN_TP_CN] = False
-
-    # Rolling sum to hourly volumes -- the sum will be incorrect where the has 
-    # following flag is False. This is okay as those will be filtered out in 
-    # the next step
-    indexer = pd.api.indexers.FixedForwardWindowIndexer(
-        window_size=RECORDS_PER_HOUR)
-    cnts[ROLLING_VOL_CN] = cnts[VOLUME_CN].rolling(window=indexer).sum()
-
-    # Filter by has following counts flag
-    cnts = cnts.loc[cnts[IN_TP_CN]]
-
-    pkhr_df = cnts.groupby(grpby_index_cols)[[ROLLING_VOL_CN]].max()
-    pkhr_df = pkhr_df.reset_index()
-
-    # Remove pedestrian and cycling modes -- at least for now
-    modes_to_keep = [k for k in TMC_MODE_MAPPING.keys()]
-    pkhr_df = pkhr_df.loc[pkhr_df[MODE_CN].isin(modes_to_keep)]
-    pkhr_df[MODE_CN] = pkhr_df[MODE_CN].map(TMC_MODE_MAPPING)    
-
-    # Set the index to match intersection-leg to station mapping
-    pkhr_df = pkhr_df.rename(final_rename_dict, axis=1)
-    pkhr_df[INOUT_CN] = inout_dir 
-    pkhr_df = pkhr_df.set_index(COUNTS_INDEX + [TIMEPERIOD_CN])
-
-    # Unstack by mode, then compute total by time period
-    f = pd.DataFrame(pkhr_df.unstack(MODE_CN)) 
-    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
-    f.columns.names = ['label', MODE_CN]
-
-    # Now unstack the time period, then swap column levels to
-    # mode, label, time period
-    f = pd.DataFrame(f.unstack(TIMEPERIOD_CN))
-    f.columns = f.columns.swaplevel('label', MODE_CN)
-    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
-    return f
+    print('  Parsing mode, and approach and departure directions')
+    cnts_l = cnts_l.copy()
+    cnts_l[[APPROACH_CN, "appr", MODE_CN, TURN_CN]] = \
+        cnts_l[MOVEMENT_CN].str.split('_', expand=True)
+    cnts_l = cnts_l.drop("appr", axis=1)
+    # Find departure direction from inbound direction and turn
+    cnts_l[DEPARTURE_CN] = ''
+    for approach, turn_dirs in TURN_TO_DEPARTURE.items():
+        fltr_approach = cnts_l[APPROACH_CN] == approach
+        for turn_dir, dep_dir in turn_dirs.items():
+            fltr_turndir = cnts_l[TURN_CN] == turn_dir
+            cnts_l.loc[fltr_approach & fltr_turndir, DEPARTURE_CN] = dep_dir
+    cnts_l[APPROACH_CN] = cnts_l[APPROACH_CN].map(DIR_LABELS)
+    cnts_l[DEPARTURE_CN] = cnts_l[DEPARTURE_CN].map(DIR_LABELS)
+    cnts_l[MODE_CN] = cnts_l[MODE_CN].map(TMC_MODE_MAPPING)
+    _validate_unique_turns(cnts_l)
+    return cnts_l
 
 
 def _validate_unique_turns(cnts: pd.DataFrame) -> None:
@@ -694,3 +501,307 @@ def _validate_unique_turns(cnts: pd.DataFrame) -> None:
         raise RuntimeError(
             'Intersections exist where number turns to a leg  is not 3. ' \
             'Look into this.')    
+
+
+def _calculate_daily_volumes_inner(
+        cnts: pd.DataFrame, 
+        index_cols: list[str], 
+        direction: str, 
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Direction based daily count volumes """
+    exp_ncnts = 3 * RECORDS_PER_DAY
+    n_records_cn = 'n_records'
+    agg_funcs = {
+        HR_START_CN: 'count',
+        VOLUME_CN: 'sum'
+    }
+    rename_dict = {
+        en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
+        VOLUME_CN: colname_description,
+        APPROACH_CN: en_ttmc.LEG_DIR_CN,
+        DEPARTURE_CN: en_ttmc.LEG_DIR_CN
+    }
+    
+    # Sum daily counts and number of observations
+    dly_cnts = cnts.groupby(index_cols).agg(agg_funcs)
+    dly_cnts.columns = [n_records_cn, VOLUME_CN]
+    # Filter observations that don't span the whole day
+    dly_cnts.loc[dly_cnts[n_records_cn] < exp_ncnts, VOLUME_CN] = np.nan
+
+    dly_cnts = dly_cnts.drop([n_records_cn], axis=1)
+    dly_cnts = dly_cnts.reset_index()
+    # add the in-out direction
+    dly_cnts[INOUT_CN] = direction   
+    # rename to intersection column names
+    dly_cnts = dly_cnts.rename(rename_dict, axis=1)
+
+    # Unstack by mode, then calculate total volume
+    # Then put into the form '{MODE}_{provided description}_
+    dly_cnts = dly_cnts.set_index(COUNTS_INDEX)
+    f = pd.DataFrame(dly_cnts.unstack(MODE_CN))
+    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
+    f.columns = f.columns.swaplevel()
+    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
+    return f
+
+
+def _calculate_daily_volumes(
+        cnts: pd.DataFrame,
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Calculate the daily_volume for inbound traffic to intersections.
+        
+    Will return a NaN if count information is not available for all 24 hours
+    of the day.
+    
+    Args:
+        cnts: 
+            Turning movement volumes in long (melted) format.
+        colname_description: 
+            final name, will be appended with the mode to create 
+            the final column name.
+    Returns:
+        pandas.DataFrame
+            Counts by intersection approach leg
+             Index is ['centreline_id', 'leg', 'in-out', 'date']
+             Columns are volumes by mode. For example, if
+             e.g. if colname_description is 'WKDAY, columns will be
+            'CAR_WKDAY', 'BUS_WKDAY', 'TRK_WKDAY', 'TOT_WKDAY'
+
+    """
+    index_in_cns = [
+        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, MODE_CN]
+    index_out_cns = [
+        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, MODE_CN]
+    dly_cnts_in = _calculate_daily_volumes_inner(
+        cnts, index_in_cns, IN_CN, colname_description)
+    dly_cnts_out = _calculate_daily_volumes_inner(
+        cnts, index_out_cns, OUT_CN, colname_description)
+    return pd.concat([dly_cnts_in, dly_cnts_out])
+
+
+def _calculate_period_volumes_inner(
+        cnts: pd.DataFrame,
+        index_cols: list[str],
+        direction: str,
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Direction based period count volumes """
+    nhrs_cn = 'n_hours_in_tp'
+    exprecords_cn = 'expected_records'
+    obsvrecords_cn = 'observed_records'
+    agg_funcs = {
+        HR_START_CN: 'count',
+        VOLUME_CN: 'sum'
+    }
+    rename_dict = {
+        en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
+        APPROACH_CN: en_ttmc.LEG_DIR_CN,
+        DEPARTURE_CN: en_ttmc.LEG_DIR_CN,
+        VOLUME_CN: colname_description
+    }
+    
+    # Sum count volumes and number of counts
+    per_cnts = cnts.groupby(index_cols).agg(agg_funcs)
+    per_cnts.columns = [obsvrecords_cn, VOLUME_CN]
+
+    # Filter out time periods where observations don't span the whole period
+    per_cnts[nhrs_cn] = \
+        per_cnts.index.get_level_values(TIMEPERIOD_CN).map(
+            en_cmn.TIME_PERIOD_NHOURS)
+    per_cnts[exprecords_cn] = per_cnts[nhrs_cn] * RECORDS_PER_HOUR * 3
+    per_cnts.loc[
+            per_cnts[obsvrecords_cn] < per_cnts[exprecords_cn], VOLUME_CN
+        ] = np.nan
+    per_cnts = per_cnts.drop([exprecords_cn, obsvrecords_cn, nhrs_cn], axis=1)
+    per_cnts = per_cnts.reset_index()
+    # add the in-out direction
+    per_cnts[INOUT_CN] = direction
+    # rename to intersection column names
+    per_cnts = per_cnts.rename(rename_dict, axis=1)
+
+    # Unstack by mode, then calculate total volume for the time period
+    per_cnts = per_cnts.set_index(COUNTS_INDEX + [TIMEPERIOD_CN])
+    f = pd.DataFrame(per_cnts.unstack(MODE_CN)) 
+    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
+    f.columns.names = ['label', MODE_CN]
+
+    # Now unstack the time period, then swap column levels to
+    # put into the form '{mode}_{provided description}_{time period}
+    f = pd.DataFrame(f.unstack(TIMEPERIOD_CN))
+    f.columns = f.columns.swaplevel('label', MODE_CN)
+    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
+    return f
+
+
+def _calculate_period_volumes(
+        cnts: pd.DataFrame, 
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Calculates period volumes by station, day and time period. 
+    
+    Args:
+        cnts: 
+            Turning movement volumes in long (melted) format.
+        colname_description: 
+            Label that is added to the columns in conjunction with
+            the mode and time period.
+    Returns:
+        Counts by intersection leg, mode and time period.
+             - Index is ['centreline_id', 'leg', 'in-out', 'date']
+             - Columns are volumes by mode and time period. For example, if
+               e.g. if colname_description is 'PER, columns will be
+               'CAR_PER_AM', 'CAR_PER_MD', ...
+
+    """
+    index_in_cns = [
+        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, 
+        MODE_CN, TIMEPERIOD_CN]
+    index_out_cns = [
+        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN,
+        MODE_CN, TIMEPERIOD_CN]
+
+    per_cnts_in = _calculate_period_volumes_inner(
+        cnts, index_in_cns, IN_CN, colname_description)
+    per_cnts_out = _calculate_period_volumes_inner(
+        cnts, index_out_cns, OUT_CN, colname_description)
+    return pd.concat([per_cnts_in, per_cnts_out])
+    
+
+def _calculate_pkhr_volumes_inner(
+        cnts: pd.DataFrame,
+        index_cols: list[str],
+        direction: str,
+        colname_description: str   
+    ) -> pd.DataFrame:
+    """ Direction-based peak-hour count volumes. """
+    intp_cn = 'following_in_tp'
+    id_cn = en_ttmc.ID_CN
+    tp_cn = TIMEPERIOD_CN
+    st_cn = en_ttmc.STTIME_CN
+    shift = RECORDS_PER_HOUR - 1
+    rollingvolume_cn = VOLUME_CN + '_rs'
+    rename_dict = {
+        en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
+        rollingvolume_cn: colname_description,
+        APPROACH_CN: en_ttmc.LEG_DIR_CN,
+        DEPARTURE_CN: en_ttmc.LEG_DIR_CN
+    }
+    # We're modifying cnts table, so make a copy
+    cnts = cnts.copy()
+    
+    # Mark records that have 3 successive counts from same station and
+    # direction. (Given the Toronto midblock use hard-coded 15-minute count 
+    # intervals, the original interval + 3 more intervals gives an hour 
+    # duration. Also look for breaks in the counts
+    cnts[intp_cn] = True
+    cnts.loc[cnts[id_cn] != cnts[id_cn].shift(-shift), intp_cn] = False
+    cnts.loc[cnts[tp_cn] != cnts[tp_cn].shift(-shift), intp_cn] = False
+
+    # Now look for a break in the counts in the 
+    # current, current+1 and current_2 positions. (current+3) is ok.
+    for i in [0, 1, 2]:
+        fltr = cnts['break_cn'].shift(-i)
+        fltr = fltr.fillna(False)
+        cnts.loc[fltr.to_numpy(), intp_cn] = False
+
+    # Rolling sum to hourly volumes -- the sum will be incorrect where the has 
+    # following flag is False. This is okay as those will be filtered out in 
+    # the next step
+    indexer = pd.api.indexers.FixedForwardWindowIndexer(
+        window_size=RECORDS_PER_HOUR)
+    cnts[rollingvolume_cn] = cnts[VOLUME_CN].rolling(window=indexer).sum()
+    # Filter by has following counts flag
+    cnts.loc[~cnts[intp_cn], rollingvolume_cn] = np.nan
+
+    # Find the maximum rolling volume for each time period,
+    # this is our peak-hour volume
+    pkhr_df = cnts.groupby(index_cols)[[rollingvolume_cn]].max()
+    pkhr_df = pkhr_df.reset_index()
+    # add the in-out direction
+    pkhr_df[INOUT_CN] = direction
+    # rename to intersection column names
+    pkhr_df = pkhr_df.rename(rename_dict, axis=1)
+    
+    # Unstack by mode, then calculate total volume for the time period
+    pkhr_df = pkhr_df.set_index(COUNTS_INDEX + [TIMEPERIOD_CN])
+    f = pd.DataFrame(pkhr_df.unstack(MODE_CN)) 
+    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
+    f.columns.names = ['label', MODE_CN]
+
+    # Now unstack the time period, then swap column levels to
+    # put into the form '{mode}_{provided description}_{time period} 
+    f = pd.DataFrame(f.unstack(TIMEPERIOD_CN))
+    f.columns = f.columns.swaplevel('label', MODE_CN)
+    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
+
+    return f
+
+
+def _calculate_pkhr_volumes(
+        cnts: pd.DataFrame,
+        colname_description: str
+    ) -> pd.DataFrame:
+    """Return peak 60-minute windows from interval data within each group.
+    
+    Args:
+
+        cnts: 
+            Turning movement volumes in long (melted) format.
+        colname_description: 
+            Label that is added to the columns in conjunction with
+            the mode and time period.
+    Returns:
+        Counts by intersection leg, mode and time period.
+             - Index is ['centreline_id', 'leg', 'in-out', 'date']
+             - Columns are volumes by mode and time period. For example, if
+               e.g. if colname_description is 'PKHR, columns will be
+               'CAR_PKHR_AM', 'CAR_PKHR_MD', ...
+    Assumes a rolling window of 60 minutes composed of consecutive intervals.
+    For 15-minute data, this is 4 intervals.
+    """
+    index_in_cns = [
+        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, 
+        MODE_CN, TIMEPERIOD_CN]
+    index_out_cns = [
+        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN,
+        MODE_CN, TIMEPERIOD_CN]
+
+    # Really need to ensure that the counts are sorted properly so that
+    # can add counts from subsequent records togther
+    cnts = cnts.sort_values(
+        [en_ttmc.ID_CN, en_tfc.DATE_CN, MODE_CN, 
+         APPROACH_CN, TURN_CN, en_ttmc.STTIME_CN]
+    )
+    # Flag breaks in the counts
+    cnts['break_cn'] = False
+    st_cn = en_ttmc.STTIME_CN
+    cnts.loc[
+        (cnts[st_cn].shift(-1) - cnts[st_cn]).dt.seconds != INTERVAL_SECS,
+        'break_cn'
+    ] = True
+    
+    pkhr_cnts_in = _calculate_pkhr_volumes_inner(
+        cnts, index_in_cns, IN_CN, colname_description)
+    pkhr_cnts_out = _calculate_pkhr_volumes_inner(
+        cnts, index_out_cns, OUT_CN, colname_description)
+    return pd.concat([pkhr_cnts_in, pkhr_cnts_out])
+
+
+def _finalize_counts_table(
+        proc_cnts: pd.DataFrame, intsc_stn_df: pd.DataFrame) -> pd.DataFrame:
+    """ Convert the final processed counts into the final format. """
+    # Convert from intersection-leg to count station using intsc_stn_df
+    df = proc_cnts.reset_index()
+    df[en_tfc.SOURCE_CN] = en_ttmc.SOURCE
+    df2 = df.merge(
+        intsc_stn_df, 
+        left_on=[en_tfc.SOURCE_CN, en_ttmc.INTSC_CN, en_ttmc.LEG_DIR_CN, INOUT_CN], 
+        right_index=True,
+        suffixes=['', '_dup']
+    )
+    df2 = df2.set_index([en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN])
+    df2 = df2.rename(en_tfc.V_CNS, axis=1)
+    # Only keep volume columns
+    return df2[en_tfc.V_CNS.values()] 
