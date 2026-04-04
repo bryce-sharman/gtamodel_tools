@@ -3,15 +3,14 @@ from math import atan2, pi
 import numpy as np
 import pandas as pd
 from shapely import Point, LineString, MultiLineString
-from typing import Optional
 
-
+import gtamodel_tools.enums.common as en_cmn
 
 
 def areal_apportionment(
         from_gdf: gpd.GeoDataFrame, 
         to_gdf: gpd.GeoDataFrame, 
-        columns: Optional[list[str]]=None, 
+        columns: list[str] | None=None, 
         tolerance: float=0.01
     ) -> pd.DataFrame:
     """ Uses Areal apportionment to transfer data between zone systems.
@@ -55,7 +54,7 @@ def areal_apportionment(
                      union_area_col, union_proparea_col] 
 
     if not columns:
-        columns = from_gdf.columns.difference(['geometry'])
+        columns = from_gdf.columns.difference([en_cmn.GPD_GEOM_COL])
     if not from_gdf.index.is_unique or not to_gdf.index.is_unique:
         raise AttributeError("Both 'from_gdf' and 'to_gdf' GeoDataFrames "
                              "must have unique indices.")
@@ -82,7 +81,7 @@ def areal_apportionment(
     from_gdf = from_gdf.reset_index(names=from_index_col)
     to_gdf2 = to_gdf2.reset_index(names=to_index_col)
     union = from_gdf.overlay(to_gdf2, how="union", keep_geom_type=False)
-    union[union_area_col] = union['geometry'].area
+    union[union_area_col] = union[en_cmn.GPD_GEOM_COL].area
 
     # Remove union geometries with areas below the tolerance.
     # Note that in doing an "inner" join in the merge operation we are
@@ -127,137 +126,143 @@ def areal_apportionment(
     return final_df.sort_index()
 
 
-
-# def create_vertices_on_line(
-#         line: LineString,
-#         target_segment_length: float,
-
-#     ) -> list[Point]:
-#     ''' Return a list of vertices on a line.
-
-#     An initial set of vertices are created as follows:
-#     - Start and end points
-#     - Internal vertices
-#     - Segments (between two vertices ) are split if their length exceeds
-#       `max_segment_length`
-
-#     A vertex is removed if the sum of the lengths on both sides of the vertex
-#     is less than target_segment_length.
-
-#     Args:
-#         line: Line which to represent as a list of Points
-#         target_segment_length: Target length of all segments between 
-#             adjacent returned points. 
-    
-#     Returns:
-#         - List of Points that represent the line.
-
-#     '''
-#     pass
-
-
-
-# def find_closest_line_to_point(
-#         pt: Point,
-#         lines: gpd.GeoSeries,
-#         coarse_threshold: float
-#     ) -> int | str:
-#     """ Find the closest LineString to a given point.
-
-#     Args:
-#         pt: point of interest
-#         lines: shapely.GeoSeries containing the lines to search
-#         coarse_threshold: only consider lines whose bounding box
-#             is within this threshold (X or Y direction) of the point for
-#             more detailed search.
-
-#     Returns:
-#         Index of the closest line in `lines` GeoSeries.
-    
-#     """
-#     pass
-
-
 def calc_linestring_orientation(
-        x: LineString | MultiLineString, 
+        ls: LineString | MultiLineString, 
         axis_offset: float=0.0,
-        return_type: str='cartesian') -> float | str:
-    """ Calculate the road orientation w.r.t. offset axis.
-    
-    The orientation is calculated based on the start and end points. 
+        return_type: str='cartesian'
+    ) -> float | str:
+    """ 
+    Calculate the road orientation w.r.t. offset axis. The orientation is 
+    calculated based on the start and end points. 
 
     Args:
-        x: Line shape
-        axis_offset: angle in degrees between absolute east and local east 
-            directions.
+        ls: 
+            Line shape
+        axis_offset: a
+            Angle in degrees between absolute east and local east directions.
         return_type: 
-            either 'angle' or 'cartesian'
+            either 'angle' or 'cartesian'. Default is 'cartesian'
     Returns 
         if return_type == 'angle' returns the angle in degrees between -180 
             and 180, with 0 being the offset axis direction, positive angles
             being counter-clockwise from the offset axis.
         if return_type == 'cartesian', return the cartesian direction with 
             respect to the offset axis [NB, EB, WB or SB].
+
     """
-    if isinstance(x, LineString):
-        st = Point(x.coords[0][0], x.coords[0][1])
-        ed = Point(x.coords[-1][0], x.coords[-1][1])
-    elif isinstance(x, MultiLineString):
-        st = Point(x.geoms[0].coords[0][0], x.geoms[0].coords[0][1])
-        ed = Point(x.geoms[-1].coords[-1][0], x.geoms[-1].coords[-1][1])
-    else:
-        raise AttributeError(
-            "Invalid geometry, must be shapely LineString or MultiLineString")
-    # Calcualte the orientation
-    dy = ed.y - st.y
-    dx = ed.x - st.x
-    angle = atan2(dy, dx) * 180.0 / pi
-    # Calculate angle w.r.t. offset axis
-    angle = angle - axis_offset
-    if angle > 180.0:
-        angle = angle - 360.0
-    elif angle < -180.0:
-        angle = angle + 360.0
+    # Find the linestring start and end points
+    st_pt = find_linestring_pt_by_index(ls, 0)
+    end_pt = find_linestring_pt_by_index(ls, -1)
+    angle = calc_angle(st_pt, end_pt)
+    angle = offset_linestring_angle(angle, axis_offset)
 
     # return values
     if return_type == 'angle':
         return angle
     elif return_type == 'cartesian':
-        if -45 <= angle < 45:
-            return 'EB'
-        elif 45 <= angle < 135:
-            return 'NB'
-        elif -135 <= angle < -45:
-            return 'SB'
-        else:
-            return 'WB'
+        return convert_angle_to_cartesian(angle)
     else:
-        raise ValueError("Invalid 'return_type' argument.")
-    
-# def reverse_line_directions(stns: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-#     """ Reverse Shapefile line directions of all lines in a Line GeoDataFrame.
-    
-#     Args:
-#         stns: the geometry column is the tentative LineString of the road
-#             segment on which the count was taken.
+        raise ValueError("Invalid return_type.")
 
-#     Returns
-#         gpd.GeoDataFrame: Count stations with modified geometry so that the 
-#             direction matches the count direction
-#     """
+
+def calc_angle(st_pt: Point, end_pt: Point) -> float:
+    # Calculate the orientation
+    dy = end_pt.y - st_pt.y
+    dx = end_pt.x - st_pt.x
+    return atan2(dy, dx) * 180.0 / pi
+
+
+def calc_euclidean_distance(st_pt: Point, end_pt: Point) -> float:
+    """ Calculate Euclidean distance between to points.
     
-#     stns[SHPDIR_COL] = stns.geometry.apply(
-#         lambda x: gis.calc_linestring_orientation(
-#             x, en_tocnts.AXIS_OFFSET, 'cartesian'))
-#     stns[OPPDIR_COL] = stns[SHPDIR_COL].map(en_traffic.OPPOSITE_DIR)
-#     stns[FLAG_COL] = ''
-#     stns = stns.copy()  # Ensure a fresh dataset before going line-by-line
-#     for stni, stnr in stns.iterrows():
-#         if stnr[en_traffic.DIR] == stnr[OPPDIR_COL]:
-#             stns.at[stni, FLAG_COL] = FLAG_OPPDIR
-#             stns.at[stni, 'geometry'] = stns.at[stni, 'geometry'].reverse()
-#         elif stnr[en_traffic.DIR] == stnr[SHPDIR_COL]:
-#             stns.at[stni, FLAG_COL] = SHPDIR_COL
-#         else:
-#             stns.at[stni, FLAG_COL] = FLAG_CROSSDIR
-#     return stns
+    Points should be in a projected coordinate system.
+
+    Args:
+        st_pt:
+            Start point
+        end_pt:
+            End point
+
+
+    Returns:
+        Distance in units of the coordinate system.
+    """
+    dx = end_pt.x - st_pt.x
+    dy = end_pt.y - st_pt.y
+    return np.sqrt(dx*dx + dy*dy)
+
+
+def find_linestring_pt_by_index(
+        x: LineString | MultiLineString, 
+        i: int
+    ) -> Point:
+    """ Retrive the coordinates of the i-th vertex in the LineString. 
+    
+    Args:
+        x: 
+            Line geometry, can either be a LineString or MultiLineString 
+            with one geometry.
+        i: 
+            index on line string to return
+
+    Returns:
+        Vertex coordinates as shapely Point.
+
+    Raises:
+        IndexError: 
+            If index is out of range.
+        AttributeError: 
+            If MultiLineString has more than one geometry.
+    
+    """
+    err_msg = "Invalid geometry, must be shapely LineString or a " \
+              "MultiLineString with a single geometry."
+    if isinstance(x, LineString):
+        return Point(x.coords[i][0], x.coords[i][1])
+    elif isinstance(x, MultiLineString):
+        if len(x.geoms) > 1:
+            raise AttributeError(err_msg)
+        return Point(x.geoms[0].coords[i][0], x.geoms[0].coords[i][1])
+    else:
+        raise AttributeError(err_msg)
+    
+
+def offset_linestring_angle(angle: float, axis_offset: float) -> float:
+    """ Offset linestring angle to account for local orientation.
+    
+    Args:
+        angle:
+            Calculated linestring angle in degrees.
+        axis_offset:
+            Difference between geometry axis and locally referenced
+            cardinal axis.
+    Returns:
+        Offset angle in degrees.
+        
+    """
+    angle = angle - axis_offset
+    if angle > 180.0:
+        angle = angle - 360.0
+    elif angle < -180.0:
+        angle = angle + 360.0
+    return angle
+
+
+def convert_angle_to_cartesian(angle: float) -> str:
+    """ Convert angle to cartesian (NB, SB, EB, WB) direction.
+
+    Args:
+        angle: angle in degrees
+    
+    Returns:
+        Cartesian direction
+    """
+    if -45 <= angle < 45:
+        return 'EB'
+    elif 45 <= angle < 135:
+        return 'NB'
+    elif -135 <= angle < -45:
+        return 'SB'
+    else:
+        return 'WB'
+    

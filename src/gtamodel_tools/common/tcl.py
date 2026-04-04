@@ -1,14 +1,15 @@
 """ Module for reading and filtering Toronto Centreline (TCL) data. """
 
-import pyogrio   # Seem to need to import before geopandas for some reason
-from geopandas import read_file, GeoDataFrame
+# import pyogrio   # Seem to need to import before geopandas for some reason
+import geopandas as gpd
 from os import PathLike
 
+import gtamodel_tools.enums.common as en_cmn
 import gtamodel_tools.enums.validation.tcl as en_tcl
 
 
-def read_tcl_gpkg(fp: PathLike,) -> GeoDataFrame:
-    """ Reads Toronto Centreline data, downloaded as a geopackage.
+def read_tcl(fp: PathLike) -> gpd.GeoDataFrame:
+    """ Reads Toronto Centreline data.
 
     Args:
         fp: Path to the TCL spatial data.
@@ -20,15 +21,22 @@ def read_tcl_gpkg(fp: PathLike,) -> GeoDataFrame:
         Toronto centreline data is available from the City of Toronto 
         Open Data. https://open.toronto.ca/dataset/toronto-centreline-tcl/
     """
-    gdf = read_file(fp, engine='pyogrio')
+    gdf = gpd.read_file(fp, engine='pyogrio')
     gdf = gdf.set_index(en_tcl.TCL_INDEX)
-    return gdf[[en_tcl.TCL_RDCLS_COL, en_tcl.TCL_ONEWAYCODE_COL, 
-                en_tcl.TCL_GEOM_COL]].copy()
+
+    # Filter to road classes 
+    gdf = gdf.loc[gdf[en_tcl.TCL_RDCLS_COL].isin(en_tcl.CLASSES_ROAD)]
+
+    return gdf[[
+        en_tcl.TCL_RDCLS_COL, en_tcl.TCL_ONEWAYCODE_COL, 
+        en_tcl.TCL_FROM_INTSC, en_tcl.TCL_TO_INTSC, en_cmn.GPD_GEOM_COL
+    ]]
+
 
 def filter_by_roadclass(
-        gdf: GeoDataFrame,
+        gdf: gpd.GeoDataFrame,
         road_levels: list[str],
-    ) -> GeoDataFrame:
+    ) -> gpd.GeoDataFrame:
     """ Filters Toronto Centreline data by road class.
 
     Args:

@@ -12,18 +12,17 @@ import geopandas as gpd
 import numpy as np
 from os import PathLike
 import pandas as pd
-from pathlib import Path
-from typing import Iterable
 
-import pandas as pd
 
 # local imports
-from gtamodel_tools.common.gis import calc_linestring_orientation
+from gtamodel_tools.common.gis import find_linestring_pt_by_index, \
+    offset_linestring_angle, convert_angle_to_cartesian, calc_angle
 
 # enums
 import gtamodel_tools.enums.common as en_cmn
 import gtamodel_tools.enums.validation.traffic.toronto_turning_movement_counts as en_ttmc
 import gtamodel_tools.enums.validation.traffic.traffic as en_tfc
+import gtamodel_tools.enums.validation.tcl as en_tcl
 
 # Module-level constants
 IS_WKDAY_CN = 'is_weekday'
@@ -77,12 +76,16 @@ DIR_LABEL_MAPPING = {
 }
 
 
-def read_turning_movement_counts(
+def process_turning_movement_counts(
         cnts_fp: PathLike, 
         intsc_leg_fp: PathLike,
         tcl_gdf: gpd.GeoDataFrame,
+        *,
+        verbose: bool=False
     ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
-    """ Reads City of Toronto Midblock count raw volume from CSV file.
+    """ 
+    Reads and processes City of Toronto Turning Movement Counts from 
+    'raw' files.
 
     Args:
         cnts_fp: 
@@ -93,6 +96,9 @@ def read_turning_movement_counts(
             leg from that intersection.
         tcl_gdf: 
             GeoDataFrame containing Toronto Centreline Network
+        verbose:
+            if True, output extra information from counts matching.
+            Default is False
 
     Returns:
         - GeoDataFrame of count stations
@@ -100,15 +106,9 @@ def read_turning_movement_counts(
 
     Notes:
         - Count data can be downloaded from Toronto Open Data Portal:
-          https://open.toronto.ca/dataset/traffic-volumes-midblock-vehicle-speed-volume-and-classification-counts/
+          https://open.toronto.ca/dataset/traffic-volumes-at-intersections-for-all-modes/
         - See the the file svc_data_dictionary on the Open Data Portal for a
           a description of the data fields.
-        - The files are svc_raw_data_volume_[start year]_[end year].csv
-        - This data only appears to be available up until August 2022. 
-          Confirm this in the future if using this data at a later date.
-        - The mapping from intersection centreline_id to street centreline_id 
-          was provided by Transportation Services' 
-          Transportation Data & Analytics Unit.
 
     """
     cnts = _read_tmc_counts(cnts_fp)
@@ -125,7 +125,7 @@ def read_turning_movement_counts(
     # Identify unique count stations
     _identify_centreline_stations(c_cnts, tcl_gdf)
     stns, intsc_stn_df = _identify_intersection_stations(
-        i_cnts, intsc_legs, tcl_gdf, street_names)
+        i_cnts, intsc_legs, tcl_gdf, street_names, verbose)
 
     # Process count times from strings to date/time objects and identifies
     # weekday / weekend counts
@@ -218,7 +218,8 @@ def _read_intersection_legs(
 
 def _merge_tcl_geometries(
         intsc_legs: pd.DataFrame,
-        tcl_gdf: gpd.GeoDataFrame
+        tcl_gdf: gpd.GeoDataFrame,
+        verbose: bool
     ) -> gpd.GeoDataFrame:
     """ Merge TCL geometries to intersection legs, ensuring correct orientation.
     
@@ -227,13 +228,19 @@ def _merge_tcl_geometries(
             Intersection legs with in and out directions.
         tcl_gdf: 
             GeoDataFrame containing Toronto Centreline Network
+        verbose:
+            if True, output extra information from counts matching.
     Returns:
         GeoDataFrame containing intersection legs with merged TCL geometries.
 
     """
-    # Merge in the geometry column from TCL centreline
+    # Merge in the geometry, from_intersection and to_intersection columns
+    # from TCL centreline
+    from_intsc_cn = en_tcl.TCL_FROM_INTSC
+    to_intsc_cn = en_tcl.TCL_TO_INTSC
+    geom_cn = en_cmn.GPD_GEOM_COL
     intsc_legs = intsc_legs.merge(
-            tcl_gdf[['geometry']], 
+            tcl_gdf[[from_intsc_cn, to_intsc_cn, geom_cn]], 
             left_on=en_ttmc.LEG_CNTRLN_CN, 
             right_index=True
     )
@@ -246,25 +253,36 @@ def _merge_tcl_geometries(
     # of the traffic direction
     print('    Flipping line directions to match traffic flow.')
     gdf = gdf.to_crs(en_cmn.COT_CRS) # Need a projected CRS
-    gdf[CNTRLN_DIR_CN] = gdf.geometry.apply(
-        lambda x: calc_linestring_orientation(
-            x, en_ttmc.AXIS_OFFSET, 'cartesian'))
+
+    gdf[CNTRLN_DIR_CN] = gdf.apply(
+        lambda row: _calc_orientation_at_intersection(
+            row, en_ttmc.AXIS_OFFSET, 'cartesian'), 
+        axis=1
+    )
     gdf[CNTRLN_OPPDIR_CN] = gdf[CNTRLN_DIR_CN].map(en_cmn.OPPOSITE_DIR)
 
     # Can't swap out geometry on the GeoDataFrame, instead operates on a new series
     # and then used GeoDataFrame.set_geometry to alter geometry on the dataframe
+    # Because we're switching direction, also need to switch the FROM and TO
+    # intersections.
     geometry = gdf.geometry
     fltr_oppdir = (gdf[en_tfc.DIR_CN] == gdf[CNTRLN_OPPDIR_CN])
     switched_geometry = geometry.loc[fltr_oppdir].reverse()
     geometry.loc[fltr_oppdir] = switched_geometry
     gdf = gdf.set_geometry(geometry)
+    from_intsc = gdf.loc[fltr_oppdir, from_intsc_cn]
+    gdf.loc[fltr_oppdir, from_intsc_cn] = gdf.loc[fltr_oppdir, to_intsc_cn]
+    gdf.loc[fltr_oppdir, to_intsc_cn] = from_intsc
 
     # First recalculate the line direction.
     # Check that direction is never the opposite direction
     # Filter out cross-direction cases (e.g. NB count with EB line)
-    gdf[CNTRLN_DIR_CN] = gdf.geometry.apply(
-        lambda x: calc_linestring_orientation(
-            x, en_ttmc.AXIS_OFFSET, 'cartesian'))
+    gdf[CNTRLN_DIR_CN] = gdf.apply(
+        lambda row: _calc_orientation_at_intersection(
+            row, en_ttmc.AXIS_OFFSET, 'cartesian'), 
+        axis=1
+    )
+
     gdf[CNTRLN_OPPDIR_CN] = gdf[CNTRLN_DIR_CN].map(en_cmn.OPPOSITE_DIR)
     fltr_oppdir = (gdf[en_tfc.DIR_CN] == gdf[CNTRLN_OPPDIR_CN])
     fltr_cross_dir = gdf[en_tfc.DIR_CN] != gdf[CNTRLN_DIR_CN]
@@ -276,6 +294,15 @@ def _merge_tcl_geometries(
           f'cardinal direction does not match count direction.')
     print('    Removing these intersection legs as they cannot be mapped to a '
           'link geometry.')
+    if verbose:
+        print('Verbose output -- removed counts')
+        pd.options.display.max_rows=1000
+        print(gdf.loc[
+                fltr_cross_dir, 
+                [en_ttmc.INTSC_CN, en_ttmc.LEG_CNTRLN_CN, 
+                en_tfc.DIR_CN, CNTRLN_DIR_CN]
+            ]
+        )
     gdf = gdf.loc[~fltr_cross_dir]
     return gdf.drop([CNTRLN_DIR_CN, CNTRLN_OPPDIR_CN], axis=1)
 
@@ -309,7 +336,8 @@ def _identify_intersection_stations(
         cnts: pd.DataFrame, 
         intsc_legs: pd.DataFrame,
         tcl_gdf: gpd.GeoDataFrame,
-        street_names: pd.Series
+        street_names: pd.Series,
+        verbose: bool,
     ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ 
     Identifies unique count stations from intersection turning movement counts.
@@ -328,6 +356,8 @@ def _identify_intersection_stations(
             GeoDataFrame containing Toronto Centreline Network
         street_names:
             Centreline streetnames.
+        verbose:
+            if True, output extra information from counts matching.
     Returns:
         - GeoDataFrame of count stations.
             Index:
@@ -370,7 +400,7 @@ def _identify_intersection_stations(
     print(f'    {len(melted)} intersection in and out movements')
 
     # Merge geometries from TCL shapefile
-    gdf = _merge_tcl_geometries(melted, tcl_gdf)
+    gdf = _merge_tcl_geometries(melted, tcl_gdf, verbose)
     print(f'    {len(gdf)} movements after merging TCL line geometries.')
 
     # It is the count data that contains the intersection lat, lon 
@@ -797,11 +827,70 @@ def _finalize_counts_table(
     df[en_tfc.SOURCE_CN] = en_ttmc.SOURCE
     df2 = df.merge(
         intsc_stn_df, 
-        left_on=[en_tfc.SOURCE_CN, en_ttmc.INTSC_CN, en_ttmc.LEG_DIR_CN, INOUT_CN], 
+        left_on=[en_tfc.SOURCE_CN, en_ttmc.INTSC_CN, 
+                 en_ttmc.LEG_DIR_CN, INOUT_CN], 
         right_index=True,
         suffixes=['', '_dup']
     )
-    df2 = df2.set_index([en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN])
+    df2 = df2.set_index([
+        en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN, en_tfc.DATE_CN])
     df2 = df2.rename(en_tfc.V_CNS, axis=1)
     # Only keep volume columns
     return df2[en_tfc.V_CNS.values()] 
+
+
+def _calc_orientation_at_intersection(
+        row: pd.Series, 
+        axis_offset: float=0.0,
+        return_type: str='cartesian'
+    ) -> float | str:
+    """ 
+    Calculate the road orientation w.r.t. offset axis at either the start
+    or end of the linestring.
+
+    Args:
+        row: 
+            Row to be processed. 
+        axis_offset: angle in degrees between absolute east and local east 
+            directions.
+        return_type: 
+            either 'angle' or 'cartesian'
+    Returns 
+        if return_type == 'angle' returns the angle in degrees between -180 
+            and 180, with 0 being the offset axis direction, positive angles
+            being counter-clockwise from the offset axis.
+        if return_type == 'cartesian', return the cartesian direction with 
+            respect to the offset axis [NB, EB, WB or SB].
+    """
+    ls = row[en_cmn.GPD_GEOM_COL]
+    intsc_id = row[en_ttmc.INTSC_CN]
+    leg_id = row[en_ttmc.LEG_CNTRLN_CN]
+    from_intsc = row[en_tcl.TCL_FROM_INTSC]
+    to_intsc = row[en_tcl.TCL_TO_INTSC]
+
+    if intsc_id == from_intsc:
+        pt0 = find_linestring_pt_by_index(ls, 0)
+        pt1 = find_linestring_pt_by_index(ls, 1)
+    elif intsc_id == to_intsc:
+        pt0 = find_linestring_pt_by_index(ls, -2)
+        pt1 = find_linestring_pt_by_index(ls, -1)
+    else:
+        raise RuntimeError(
+                f'Intersection ID does not match leg from-to intersection:\n'
+                f'    Intersection ID: {intsc_id}\n'
+                f'    Leg ID: {leg_id}'
+            )
+
+    angle = calc_angle(pt0, pt1)
+
+    # Calculate angle w.r.t. offset axis
+    angle = offset_linestring_angle(angle, axis_offset)
+
+    # return values
+    if return_type == 'angle':
+        return angle
+    elif return_type == 'cartesian':
+        return convert_angle_to_cartesian(angle)
+    else:
+        raise ValueError("Invalid 'return_type' argument.")
+    
