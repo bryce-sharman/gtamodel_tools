@@ -1,10 +1,10 @@
 import geopandas as gpd
 from math import atan2, pi
-import numpy as np
 import pandas as pd
 from shapely import Point, LineString, MultiLineString
 
 import gtamodel_tools.enums.common as en_cmn
+from gtamodel_tools.enums.validation.common import LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR 
 
 
 def areal_apportionment(
@@ -126,80 +126,76 @@ def areal_apportionment(
     return final_df.sort_index()
 
 
-def calc_linestring_orientation(
-        ls: LineString | MultiLineString, 
+def prepare_gdf_for_count_processing(
+        gdf: gpd.GeoDataFrame | gpd.GeoSeries,
         axis_offset: float=0.0,
-        return_type: str='cartesian'
-    ) -> float | str:
-    """ 
-    Calculate the road orientation w.r.t. offset axis. The orientation is 
-    calculated based on the start and end points. 
+    ) -> gpd.GeoDataFrame:
+    """ Preprocesses a GeoDataFrame for validation purposes.
+
+    This function calculates the direction at the start, the end and from the 
+    start to the end of a linestring to prepare a GeoDataFrame to processess
+    count data.
+
+    The benefit of precalculating these is that they can be modified
+    later in case the directions from the count data do not reflect a 
+    geographic representation. This usually occurs when a specific 
+    line is not oriented along the locally predominant N, S, E or W directions. 
 
     Args:
-        ls: 
-            Line shape
+        gdf: 
+            GeoDataFrame to be modified
         axis_offset: a
             Angle in degrees between absolute east and local east directions.
-        return_type: 
-            either 'angle' or 'cartesian'. Default is 'cartesian'
-    Returns 
-        if return_type == 'angle' returns the angle in degrees between -180 
-            and 180, with 0 being the offset axis direction, positive angles
-            being counter-clockwise from the offset axis.
-        if return_type == 'cartesian', return the cartesian direction with 
-            respect to the offset axis [NB, EB, WB or SB].
-
-    """
-    # Find the linestring start and end points
-    st_pt = find_linestring_pt_by_index(ls, 0)
-    end_pt = find_linestring_pt_by_index(ls, -1)
-    angle = calc_angle(st_pt, end_pt)
-    angle = offset_linestring_angle(angle, axis_offset)
-
-    # return values
-    if return_type == 'angle':
-        return angle
-    elif return_type == 'cartesian':
-        return convert_angle_to_cartesian(angle)
-    else:
-        raise ValueError("Invalid return_type.")
-
-
-def calc_angle(st_pt: Point, end_pt: Point) -> float:
-    # Calculate the orientation
-    dy = end_pt.y - st_pt.y
-    dx = end_pt.x - st_pt.x
-    return atan2(dy, dx) * 180.0 / pi
-
-
-def calc_euclidean_distance(st_pt: Point, end_pt: Point) -> float:
-    """ Calculate Euclidean distance between to points.
-    
-    Points should be in a projected coordinate system.
-
-    Args:
-        st_pt:
-            Start point
-        end_pt:
-            End point
-
-
     Returns:
-        Distance in units of the coordinate system.
+        Modified GeoDataFrame, adding the following fields:
+        - _from_dir_: Cartesian direction [NB, SB, EB, WB] at the line start
+        - _to_dir_: Cartesian direction [NB, SB, EB, WB] at the line end
+        - _ft_dir_: Cartesian direction [NB, SB, EB, WB] from first 
+                    to last vertex
     """
-    dx = end_pt.x - st_pt.x
-    dy = end_pt.y - st_pt.y
-    return np.sqrt(dx*dx + dy*dy)
+    gdf = gpd.GeoDataFrame(gdf)
+    gdf[[LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR]] = gdf.apply(
+            lambda row: _calculate_ls_angles(row, axis_offset),
+            axis=1,
+            result_type='expand'
+        )
+    return gdf
 
 
-def find_linestring_pt_by_index(
-        x: LineString | MultiLineString, 
+def _calculate_ls_angles(
+        row: pd.Series,
+        axis_offset: float
+    ) -> tuple[str, str, str]:
+    """ Calculates angles on a linestring to prepare for validation counts."""
+    ls = row.geometry
+    first_pt = _find_ls_vertex_by_index(ls, 0)
+    second_pt = _find_ls_vertex_by_index(ls, 1)
+    secondlast_pt = _find_ls_vertex_by_index(ls, -2)
+    last_pt = _find_ls_vertex_by_index(ls, -1)
+
+    from_dir = _calculate_direction(first_pt, second_pt, axis_offset)
+    to_dir = _calculate_direction(secondlast_pt, last_pt, axis_offset)
+    ft_dir = _calculate_direction(first_pt, last_pt, axis_offset)
+    return (from_dir, to_dir, ft_dir)
+
+
+def _calculate_direction(
+        st_pt: Point, end_pt: Point, axis_offset: float
+    ) -> str:
+    """ Calculate cartesian direction (NB, SB, EB, WB) between two points. """
+    angle = _calculate_angle(st_pt, end_pt)
+    angle = _rotate_angle(angle, axis_offset)
+    return _convert_angle_to_cartesian(angle)
+
+
+def _find_ls_vertex_by_index(
+        ls: LineString | MultiLineString, 
         i: int
     ) -> Point:
     """ Retrive the coordinates of the i-th vertex in the LineString. 
     
     Args:
-        x: 
+        ls: 
             Line geometry, can either be a LineString or MultiLineString 
             with one geometry.
         i: 
@@ -217,18 +213,38 @@ def find_linestring_pt_by_index(
     """
     err_msg = "Invalid geometry, must be shapely LineString or a " \
               "MultiLineString with a single geometry."
-    if isinstance(x, LineString):
-        return Point(x.coords[i][0], x.coords[i][1])
-    elif isinstance(x, MultiLineString):
-        if len(x.geoms) > 1:
+    if isinstance(ls, LineString):
+        return Point(ls.coords[i][0], ls.coords[i][1])
+    elif isinstance(ls, MultiLineString):
+        if len(ls.geoms) > 1:
             raise AttributeError(err_msg)
-        return Point(x.geoms[0].coords[i][0], x.geoms[0].coords[i][1])
+        return Point(ls.geoms[0].coords[i][0], ls.geoms[0].coords[i][1])
     else:
         raise AttributeError(err_msg)
-    
 
-def offset_linestring_angle(angle: float, axis_offset: float) -> float:
-    """ Offset linestring angle to account for local orientation.
+
+def _calculate_angle(st_pt: Point, end_pt: Point) -> float:
+    """ Calculate the angle between two points.
+
+    Points should be in a projected coordinate system.
+
+    Args:
+        st_pt:
+            Start point
+        end_pt:
+            End point
+
+    Returns:
+        Angle from st_pt to end_pt in the coordinate system, in degrees.
+
+    """
+    dy = end_pt.y - st_pt.y
+    dx = end_pt.x - st_pt.x
+    return atan2(dy, dx) * 180.0 / pi
+
+   
+def _rotate_angle(angle: float, axis_offset: float) -> float:
+    """ Rotate angle to account for local N-S-E-W orientation.
     
     Args:
         angle:
@@ -236,10 +252,13 @@ def offset_linestring_angle(angle: float, axis_offset: float) -> float:
         axis_offset:
             Difference between geometry axis and locally referenced
             cardinal axis.
+
     Returns:
-        Offset angle in degrees.
+        Rotated angle in degrees.
         
     """
+    if axis_offset == 0.0:
+        return angle
     angle = angle - axis_offset
     if angle > 180.0:
         angle = angle - 360.0
@@ -248,7 +267,7 @@ def offset_linestring_angle(angle: float, axis_offset: float) -> float:
     return angle
 
 
-def convert_angle_to_cartesian(angle: float) -> str:
+def _convert_angle_to_cartesian(angle: float) -> str:
     """ Convert angle to cartesian (NB, SB, EB, WB) direction.
 
     Args:
