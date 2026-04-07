@@ -26,12 +26,12 @@ def areal_apportionment(
     to_gdf: geopandas.GeoDataFrame
         Geomtries to which data will be attributed.
 
-    columns: List of strings
+    columns: 
         If defined, specifies the attributes in from_gdf that are to be 
         apportioned. If None then all columns will be apportioned. 
         Default is None.
 
-    tolerance: float
+    tolerance:
         Defines the minimum overlap proportion between two zone that will used 
         to signify an overlap between zones between the from_gdf and to_gdf
         geometries. Overlaps of less than this will be ignored.
