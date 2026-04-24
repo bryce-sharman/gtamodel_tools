@@ -45,36 +45,55 @@ The combination of `source`, `station_id` and `direction` form a unique key to t
 | station_id      | text(10)   | Count station id, links to stations table, see below for details |
 | direction       | str(2)     | one of 'NB', 'EB', 'SB' or 'WB' |
 | date            | str        | Count date -- Set to Jan 1st of the year for cordon counts |
-| vtotal_ampkhr   | float(4)   | AM peak-hour total vehicle volume | 
-| vtotal_ampkper  | float(4)   | AM peak period total vehicle volume | 
-| vtotal_pmpkhr   | float(4)   | PM peak-hour total vehicle volume | 
-| vtotal_pmpkper  | float(4)   | PM peak-period total vehicle volume | 
-| vtotal_weekday  | float(4)   | Daily total weekday vehicle volume | 
-| vtotal_weekdend | float(4)   | Daily total weekend vehicle volume | 
-| vcars_ampkhr    | float(4)   | AM peak-hour car volume (if available) | 
-| vcars_ampkper   | float(4)   | AM peak period car volume (if available) | 
-| vcars_pmpkhr    | float(4)   | PM peak-hour car volume (if available) | 
-| vcars_pmpkper   | float(4)   | PM peak-period car volume (if available) | 
-| vcars_weekday   | float(4)   | Daily cars weekday vehicle volume | 
-| vcars_weekdend  | float(4)   | Daily cars weekend vehicle volume | 
-| vbuses_ampkhr   | float(4)   | AM peak-hour bus volume (if available) | 
-| vbuses_ampkper  | float(4)   | AM peak period bus volume (if available) | 
-| vbuses_pmpkhr   | float(4)   | PM peak-hour bus volume (if available) | 
-| vbuses_pmpkper  | float(4)   | PM peak-period bus volume (if available) | 
-| vbuses_weekday  | float(4)   | Daily bus weekday vehicle volume | 
-| vbuses_weekdend | float(4)   | Daily bus weekend vehicle volume | 
-| vtrucks_ampkhr  | float(4)   | AM peak-hour truck volume of  (if available) | 
-| vtrucks_ampkper | float(4)   | AM peak period truck volume of  (if available) | 
-| vtrucks_pmpkhr  | float(4)   | PM peak-hour truck volume of  (if available) | 
-| vtrucks_pmpkper | float(4)   | PM peak-period truck volume of  (if available) | 
-| vtrucks_weekday | float(4)   | Daily truck weekday vehicle volume | 
-| vtrucks_weekdend| float(4)   | Daily truck weekend vehicle volume | 
-| vheavy_ampkhr   | float(4)   | AM peak-hour heavy vehicle volume of  (if available) | 
-| vheavy_ampkper  | float(4)   | AM peak period heavy vehicle volume of  (if available) | 
-| vheavy_pmpkhr   | float(4)   | PM peak-hour heavy vehicle volume of  (if available) | 
-| vheavy_pmpkper  | float(4)   | PM peak-period heavy vehicle volume of  (if available) | 
-| vheavy_weekday  | float(4)   | Daily heavy weekday vehicle volume | 
-| vheavy_weekdend | float(4)   | Daily heavy weekend vehicle volume | 
+| vtot_amper      | float(4)   | 
+| vtot_ampkhr     | float(4)   | 
+| vtot_mdper      | float(4)   | 
+| vtot_mdpkhr     | float(4)   | 
+| vtot_pmper      | float(4)   | 
+| vtot_pmpkhr     | float(4)   | 
+| vtot_evper      | float(4)   | 
+| vtot_evpkhr     | float(4)   | 
+| vtot_onper      | float(4)   | 
+| vtot_onpkhr     | float(4)   | 
+| vtot_weekday    | float(4)   | 
+| vtot_weeken'    | float(4)   | 
+| vcar_amper      | float(4)   | 
+| vcar_ampkhr     | float(4)   | 
+| vcar_mdper      | float(4)   | 
+| vcar_mdpkhr     | float(4)   | 
+| vcar_pmper      | float(4)   | 
+| vcar_pmpkhr     | float(4)   | 
+| vcar_evper      | float(4)   | 
+| vcar_evpkhr     | float(4)   | 
+| vcar_onper      | float(4)   | 
+| vcar_onpkhr     | float(4)   | 
+| vcar_weekday    | float(4)   | 
+| vcar_weekend    | float(4)   | 
+| vbus_amper      | float(4)   | 
+| vbus_ampkhr     | float(4)   | 
+| vbus_mdper      | float(4)   | 
+| vbus_mdpkhr     | float(4)   | 
+| vbus_pmper      | float(4)   | 
+| vbus_pmpkhr     | float(4)   | 
+| vbus_evper      | float(4)   | 
+| vbus_evpkhr     | float(4)   | 
+| vbus_onper      | float(4)   | 
+| vbus_onpkhr     | float(4)   | 
+| vbus_weekday    | float(4)   | 
+| vbus_weekend    | float(4)   | 
+| vtrk_amper      | float(4)   | 
+| vtrk_ampkhr     | float(4)   | 
+| vtrk_mdper      | float(4)   | 
+| vtrk_mdpkhr     | float(4)   | 
+| vtrk_pmper      | float(4)   | 
+| vtrk_pmpkhr     | float(4)   | 
+| vtrk_evper      | float(4)   | 
+| vtrk_evpkhr     | float(4)   | 
+| vtrk_onper      | float(4)   | 
+| vtrk_onpkhr     | float(4)   | 
+| vtrk_weekday    | float(4)   | 
+| vtrk_weekend    | float(4)   | 
+
 
 The combination of `source`, `station_id`, `direction` and `date` form a 
 unique key to the station. 
