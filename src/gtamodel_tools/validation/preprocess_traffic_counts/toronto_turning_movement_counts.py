@@ -11,6 +11,7 @@ import geopandas as gpd
 import numpy as np
 from os import PathLike
 import pandas as pd
+from pathlib import Path
 
 # enums
 import gtamodel_tools.enums.common as en_cmn
@@ -70,8 +71,60 @@ DIR_LABEL_MAPPING = {
     'w': 'west'
 }
 
+def read_turning_movement_counts_from_dir(
+        loc: str | PathLike,
+        intsc_leg_fp: PathLike,
+        tcl_gdf: gpd.GeoDataFrame,
+        *,
+        drop_intersections: list[int] | None = None
+    ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
+    """ Read all Toronto turning movement counts from directory.
 
-def process_turning_movement_counts(
+    Args:
+        loc: 
+            File directory containing count data
+        intsc_leg_fp: 
+            Path to the file containing the mapping between intersection
+            centreline_id, and the centreline_id corresponding to each
+            leg from that intersection.
+        tcl_gdf: 
+            GeoDataFrame containing Toronto Centreline Network
+        drop_intersections:
+            Optional list of count intersections to drop.
+
+    Returns:
+        - GeoDataFrame of count stations
+        - DataFrame of count data
+
+    Notes:
+        - Count data can be downloaded from Toronto Open Data Portal:
+          https://open.toronto.ca/dataset/traffic-volumes-at-intersections-for-all-modes/
+        - See the the file svc_data_dictionary on the Open Data Portal for a
+          a description of the data fields.
+    """
+
+    loc = Path(loc)
+    pat = 'tmc_raw_data_[0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9].csv'
+    stns_list = []
+    counts_list = []
+    
+    print('Processing turning movement count files')
+    for fp in loc.glob(pat):
+        stns, counts = read_turning_movement_counts_from_file(
+            fp, intsc_leg_fp, tcl_gdf, drop_intersections=drop_intersections)
+        stns_list.append(stns)
+        counts_list.append(counts)
+    print('All files processed')
+
+    stns = pd.concat(stns_list)
+    stns = gpd.GeoDataFrame(stns)  # this is to keep the type hinting happy
+    cnts = pd.concat(counts_list)
+    # Remove station duplicates
+    stns = stns.loc[~stns.index.duplicated()]
+    return stns, cnts
+
+
+def read_turning_movement_counts_from_file(
         cnts_fp: PathLike, 
         intsc_leg_fp: PathLike,
         tcl_gdf: gpd.GeoDataFrame,
@@ -855,6 +908,11 @@ def _finalize_counts_table(
     df2 = df2.set_index([
         en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN, en_tfc.DATE_CN])
     df2 = df2.rename(en_tfc.V_CNS, axis=1)
-    # Only keep volume columns
+
+    # Only keep volume columns, ensuring that all expected volume columns are 
+    # present.
+    for c in en_tfc.V_CNS.values():
+        if c not in df2.columns:
+            df2[c] = np.nan
     return df2[en_tfc.V_CNS.values()] 
 
