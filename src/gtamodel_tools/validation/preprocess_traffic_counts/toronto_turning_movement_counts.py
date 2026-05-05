@@ -17,7 +17,7 @@ import gtamodel_tools.enums.common as en_cmn
 import gtamodel_tools.enums.validation.traffic.toronto_turning_movement_counts as en_ttmc
 import gtamodel_tools.enums.validation.traffic.traffic as en_tfc
 import gtamodel_tools.enums.validation.tcl as en_tcl
-from gtamodel_tools.enums.validation.common import LS_FROM_DIR, LS_TO_DIR
+from gtamodel_tools.enums.validation.common import LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR
 
 # Module-level constants
 IS_WKDAY_CN = 'is_weekday'
@@ -75,6 +75,8 @@ def process_turning_movement_counts(
         cnts_fp: PathLike, 
         intsc_leg_fp: PathLike,
         tcl_gdf: gpd.GeoDataFrame,
+        *,
+        drop_intersections: list[int] | None = None
     ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
     """ 
     Reads and processes City of Toronto Turning Movement Counts from 
@@ -89,6 +91,8 @@ def process_turning_movement_counts(
             leg from that intersection.
         tcl_gdf: 
             GeoDataFrame containing Toronto Centreline Network
+        drop_intersections:
+            Optional list of count intersections to drop.
 
     Returns:
         - GeoDataFrame of count stations
@@ -109,11 +113,11 @@ def process_turning_movement_counts(
     # denoted by centreline_type = 2.
     c_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_CENTERLINE]
     i_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_INTERSECTION]
+    i_cnts = i_cnts.loc[~i_cnts[en_ttmc.CNTRLNID_CN].isin(drop_intersections)]
     print(f'    {len(c_cnts)} count records are referenced by centreline. ')
     print(f'    {len(i_cnts)} count records are referenced by intersection.')
 
     # Identify unique count stations
-
     _identify_centreline_stations(c_cnts, tcl_gdf)
     stns, intsc_stn_df = _identify_intersection_stations(
         i_cnts, intsc_legs, tcl_gdf, street_names)
@@ -227,12 +231,13 @@ def _merge_tcl_geometries(
     TO_CN = en_tcl.TCL_TO_INTSC
     FR_ODIR_CN = '_from_oppdir_'
     TO_ODIR_CN = '_to_oppdir_'
+    FT_ODIR_CN = '_fromto_oppdir_'
     GEOM_CN = en_cmn.GPD_GEOM_COL
     
     # Merge in the geometry, from_intersection and to_intersection columns
     # from TCL centreline
     intsc_legs = intsc_legs.merge(
-            tcl_gdf[[FR_CN, TO_CN, LS_FROM_DIR, LS_TO_DIR, GEOM_CN]], 
+            tcl_gdf[[FR_CN, TO_CN, LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR, GEOM_CN]], 
             left_on=en_ttmc.LEG_CNTRLN_CN, 
             right_index=True
     )
@@ -248,6 +253,7 @@ def _merge_tcl_geometries(
     gdf = gdf.to_crs(en_cmn.COT_CRS) # Need a projected CRS
     gdf[FR_ODIR_CN] = gdf[LS_FROM_DIR].map(en_cmn.OPPOSITE_DIR)
     gdf[TO_ODIR_CN] = gdf[LS_TO_DIR].map(en_cmn.OPPOSITE_DIR)
+    gdf[FT_ODIR_CN] = gdf[LS_FT_DIR].map(en_cmn.OPPOSITE_DIR)
 
     fltr_oppdir = pd.Series(False, index=gdf.index)
     fltr_oppdir.loc[
@@ -277,14 +283,23 @@ def _merge_tcl_geometries(
     # to alter geometry on the dataframe.
     # Because we're switching direction, also need to switch the FROM and TO
     # intersections.
+    # 1. switch the geometry
     geometry = gdf.geometry
     switched_geometry = geometry.loc[fltr_oppdir].reverse()
     geometry.loc[fltr_oppdir] = switched_geometry
     gdf = gdf.set_geometry(geometry)
+    # 2. switch the from and to intersections
     from_intsc = gdf.loc[fltr_oppdir, FR_CN]
     gdf.loc[fltr_oppdir, FR_CN] = gdf.loc[fltr_oppdir, TO_CN]
     gdf.loc[fltr_oppdir, TO_CN] = from_intsc
-    
+    # 3. switch the link-level from-to coordinate
+    gdf.loc[fltr_oppdir, LS_FT_DIR] = gdf.loc[fltr_oppdir, FT_ODIR_CN]
+
+    # Note that the count direction from an intersection is not necessarily a
+    # reflection of the orientation of the line, but may be a best fit as to
+    # where the road lies in an intersection. Hence swap out the direction 
+    # with the line from-to direction
+    gdf[DIR_CN] = gdf[LS_FT_DIR]
     # Print and drop cross-direction count locations
     n_cross_dir_stns = fltr_crossdir.sum()
     if n_cross_dir_stns > 0:
@@ -308,7 +323,10 @@ def _merge_tcl_geometries(
         gdf_index_to_drop = gdf.loc[fltr_crossdir].index
         gdf = gdf.drop(gdf_index_to_drop, axis=0)
 
-    return gdf.drop([LS_FROM_DIR, LS_TO_DIR, FR_ODIR_CN, TO_ODIR_CN], axis=1)
+    return gdf.drop(
+        [LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR, FR_ODIR_CN, TO_ODIR_CN, FT_ODIR_CN], 
+        axis=1
+    )
 
 
 def _identify_centreline_stations(
