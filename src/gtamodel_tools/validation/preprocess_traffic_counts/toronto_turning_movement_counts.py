@@ -348,11 +348,6 @@ def _merge_tcl_geometries(
     # 3. switch the link-level from-to coordinate
     gdf.loc[fltr_oppdir, LS_FT_DIR] = gdf.loc[fltr_oppdir, FT_ODIR_CN]
 
-    # Note that the count direction from an intersection is not necessarily a
-    # reflection of the orientation of the line, but may be a best fit as to
-    # where the road lies in an intersection. Hence swap out the direction 
-    # with the line from-to direction
-    gdf[DIR_CN] = gdf[LS_FT_DIR]
     # Print and drop cross-direction count locations
     n_cross_dir_stns = fltr_crossdir.sum()
     if n_cross_dir_stns > 0:
@@ -375,6 +370,12 @@ def _merge_tcl_geometries(
             pd.options.display.max_rows = prev_max_rows         
         gdf_index_to_drop = gdf.loc[fltr_crossdir].index
         gdf = gdf.drop(gdf_index_to_drop, axis=0)
+
+    # Note that the count direction from an intersection is not necessarily a
+    # reflection of the orientation of the line, but may be a best fit as to
+    # where the road lies in an intersection. Hence swap out the direction 
+    # with the line from-to direction
+    gdf[DIR_CN] = gdf[LS_FT_DIR]
 
     return gdf.drop(
         [LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR, FR_ODIR_CN, TO_ODIR_CN, FT_ODIR_CN], 
