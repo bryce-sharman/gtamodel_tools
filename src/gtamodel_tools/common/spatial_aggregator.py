@@ -3,6 +3,7 @@ import geopandas as gpd
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from typing import Hashable
 
 class SpatialAggregator(ABC):
@@ -35,8 +36,9 @@ class ModelRegionSpatialAggregator(SpatialAggregator):
                 "and `ids` parameters."
             )
         index = pd.Index(ids, dtype=np.uint32)
-        self._spatial_aggregation = pd.Series(
+        s = pd.Series(
             index=index, data=self.REGION_ID, name=name)
+        self._spatial_aggregation = s.sort_index()
         
     @property
     def mapping(self) -> pd.Series:
@@ -57,8 +59,9 @@ class OneLevelMappingSpatialAggregator(SpatialAggregator):
                 "and `lvl1_mapping` parameters."
             )
         # taz_mapping can be either a dict or a pandas Series, convert to Series
-        self._spatial_aggregation = pd.Series(lvl1_mapping)
-        self._spatial_aggregation.name = name
+        s = pd.Series(lvl1_mapping, name=name)
+        s.index = s.index.astype(np.uint32)
+        self._spatial_aggregation = s.sort_index()
 
     @property
     def mapping(self) -> pd.Series:
@@ -83,10 +86,10 @@ class TwoLevelMappingSpatialAggregator(SpatialAggregator):
         # pandas Series, convert to Series
         lvl1_mapping = pd.Series(lvl1_mapping)
         lvl2_mapping = pd.Series(lvl2_mapping)
-        s = pd.Series(lvl1_mapping)
+        s = pd.Series(lvl1_mapping, name=name)
         s2 = s.map(lvl2_mapping)
-        s2.name = name
-        self._spatial_aggregation = s2
+        s2.index = s2.index.astype(np.uint32)
+        self._spatial_aggregation = s2.sort_index()
 
     @property
     def mapping(self) -> pd.Series:
@@ -109,13 +112,17 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
                 "`ids` and `ranges` parameters."
             )
         index = pd.Index(ids, dtype=np.uint32)
-        s = pd.Series(index=index, data="", name=name)
+        s = pd.Series(index=index, data=None, name=name)
         for r0, r1, r2 in ranges:
             r_label = r0
             r_min = r1
             r_max = r2
             fltr = (index>=r_min) & (index < r_max)
             s.loc[fltr] = r_label
+        s = s.sort_index()
+        # Convert to int if possible
+        if is_numeric_dtype(s) and s.equals(s.round(0)):
+            s = s.astype(np.int64)
         self._spatial_aggregation = s
 
     @property
@@ -152,6 +159,8 @@ class ShapefileSpatialAggregator(SpatialAggregator):
             points2 = points2.loc[~points2.index.duplicated(keep='first')]
         self._spatial_aggregation = points2[name]
         self._spatial_aggregation.name = name
+        self._spatial_aggregation.index = \
+            self._spatial_aggregation.index.astype(np.uint32)
 
     @property
     def mapping(self) -> pd.Series:
