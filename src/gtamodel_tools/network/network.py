@@ -19,7 +19,7 @@ from pathlib import Path
 from shapely import Polygon
 from typing import Self, Type
 
-from gtamodel_tools.common.gis import calc_linestring_orientation
+# from gtamodel_tools.common.gis import calc_linestring_orientation
 import gtamodel_tools.common.spatial_aggregator as sa
 from gtamodel_tools.config import Config
 from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
@@ -237,8 +237,8 @@ class Network(object):
         self.base_tonode_col = 'base_tonode'
         print('  Applying link classifications.')
         self.apply_link_classification()
-        print('  Calculating link cartesian directions.')
-        self.calculate_link_direction()
+        # print('  Calculating link cartesian directions.')
+        # self.calculate_link_direction()
         print('  Assigning to transit operators from transit line ID')
         self.apply_transit_operator()
         print('  Applying summary node and zone ranges.')
@@ -281,31 +281,32 @@ class Network(object):
                 fltr = self.links[v['attr']].isin(v['values'])
                 self.links.loc[fltr, self.linkclass] = k  
 
-    def calculate_link_direction(self) -> None:
-        """ 
-        Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
-        Direction is based on North direction, which can be offset to a 
-        perceived north direction in the region. This offset is defined
-        in the network coding standard. 
-        """
-        self.links[self.link_dir_col] = self.links.apply(
-            lambda x: calc_linestring_orientation(
-                x[self.geometry_col], self.grid_offset, 'cartesian'), axis=1)
+    # def calculate_link_direction(self) -> None:
+    #     """ 
+    #     Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
+    #     Direction is based on North direction, which can be offset to a 
+    #     perceived north direction in the region. This offset is defined
+    #     in the network coding standard. 
+    #     """
+    #     self.links[self.link_dir_col] = self.links.apply(
+    #         lambda x: calc_linestring_orientation(
+    #             x[self.geometry_col], self.grid_offset, 'cartesian'), axis=1)
 
     def apply_transit_operator(self):
         """ 
         Apply the operator regex, defined in the enumeration,to append
         the transit operator to the transit lines and transit segments tables.
         """
-        tlines_index = self.tlines.index
-        tsegments_index = self.tsegments.index.get_level_values(0)
-        self.tlines[self.toperator] = ''
-        self.tsegments[self.toperator] = ''
-        for operator, regex_expr in self.transit_operator_regexprs.items():
-            fltr = tlines_index.str.match(regex_expr)
-            self.tlines.loc[fltr, self.toperator] = operator
-            fltr = tsegments_index.str.match(regex_expr)
-            self.tsegments.loc[fltr, self.toperator] = operator
+        if self.transit_operator_regexprs is not None:
+            tlines_index = self.tlines.index
+            tsegments_index = self.tsegments.index.get_level_values(0)
+            self.tlines[self.toperator] = ''
+            self.tsegments[self.toperator] = ''
+            for operator, regex_expr in self.transit_operator_regexprs.items():
+                fltr = tlines_index.str.match(regex_expr)
+                self.tlines.loc[fltr, self.toperator] = operator
+                fltr = tsegments_index.str.match(regex_expr)
+                self.tsegments.loc[fltr, self.toperator] = operator
 
     def filter_link_connectors(self):
         """ Returns copy of links table with connectors removed"""

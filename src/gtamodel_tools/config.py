@@ -36,46 +36,52 @@ class Config(object):
             c = safe_load(f)
         
         # Set and test directory holding network results
-        self.networks_subdir = \
-            self.model_outputs_dir / c['network_subdirectory']
+        self.networks_subdir = c.get('network_subdirectory')
+        if self.networks_subdir is not None:
+            self.networks_subdir = \
+                self.model_outputs_dir / self.networks_subdir
         
         # Test subdirectory holding MicroSim results
-        self.microsim_subdir = \
-            self.model_outputs_dir / c['microsim_subdirectory']
-        
+        self.microsim_subdir = c.get('microsim_subdirectory')
+        if self.microsim_subdir is not None:
+            self.microsim_subdir = \
+                self.model_outputs_dir / self.microsim_subdir
         # MicroSim results files, within the microsim directory
-        self.microsim_filepaths = c['microsim_filenames']
+        self.microsim_filepaths = c.get('microsim_filenames')
 
         # The demand directory holds auto and transit demand matrices
         # by time period, and also the uses-TTC path-based analysis results.
-        self.demand_subdir = \
-            self.model_outputs_dir / c['demand_subdirectory']
+        self.demand_subdir = c.get('demand_subdirectory')
+        if self.demand_subdir is not None:
+            self.demand_subdir = \
+                self.model_outputs_dir / self.demand_subdir
         
         # The LOS directory holds cost and travel time matrices by time period.
         # The station tranfer files are also stored here.
         # Note that each time period has its own subdirectory.
-        self.los_subdir = \
-            self.model_outputs_dir / c['los_subdirectory']
+        self.los_subdirectory = c.get('los_subdirectory')   
+        if self.los_subdirectory is not None:
+            self.los_subdir = \
+                self.model_outputs_dir / self.los_subdirectory
 
         # Time period definitions
-        # Start and end times are in minutes after midnight
-        # Start times are inclusive; end times are exclusive
-        self.time_periods = c['time_period_definitions']
+        # Can hold is_assigned flag, auto and transit peak-hr factors and start
+        # and end times (minutes after midnight)
+        self.time_periods = c.get('time_period_definitions')
 
         # coordinate reference system underlying network coordinates
-        self.network_crs = c['network_crs']
+        self.network_crs = c.get('network_crs')
         # angle between true-north and local north (degrees counter-clockwise)
         # used for interpretation of validation count data.
-        self.grid_offset = c['grid_offset']
-        self.automode_id = c['automode_id']
+        self.grid_offset = c.get('grid_offset')
+        self.automode_id = c.get('automode_id')
 
         # the following inputs are not hard-coded in Emme, hence include
         # here in the config file. Other attributes, such as lanes,
         # are fixed in Emme and hence are not needed here.
-        self.link_freeflow_speed_col = c['link_freeflow_speed_col']
-        self.link_lane_capacity_col = c['link_lane_capacity_col']
+        self.link_freeflow_speed_col = c.get('link_freeflow_speed_col')
+        self.link_lane_capacity_col = c.get('link_lane_capacity_col')
 
-        # Optional configuration file inputs
         self.link_classification_defs = c.get('link_classification_defs')
         self.screenlines_fp = c.get('screenlines_fp')
         self.zone_ranges = c.get('zone_ranges')
