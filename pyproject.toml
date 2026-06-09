@@ -4,7 +4,7 @@ requires = ["setuptools>=61.0.0"]
 
 [project]
 name = "gtamodel_tools"
-version = "0.01"
+version = "0.02"
 authors = [
     {name="Bryce Sharman"}
 ]
@@ -33,6 +33,10 @@ addopts = "-ra -q -s"
 testpaths = [
     "tests"
 ]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -40,3 +44,5 @@ where = ["src"]
 mypkg = ["*.csv"]
 
 keywords = ["GTAModel", "TMG"]
+
+
