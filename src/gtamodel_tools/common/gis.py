@@ -3,7 +3,7 @@ from math import atan2, pi
 import pandas as pd
 from shapely import Point, LineString, MultiLineString
 
-import gtamodel_tools.enums.common as en_cmn
+from gtamodel_tools.enums.common import GPD_GEOM_COL
 from gtamodel_tools.enums.validation.common import LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR 
 
 
@@ -54,7 +54,7 @@ def areal_apportionment(
                      union_area_col, union_proparea_col] 
 
     if not columns:
-        columns = from_gdf.columns.difference([en_cmn.GPD_GEOM_COL])
+        columns = from_gdf.columns.difference([GPD_GEOM_COL])
     if not from_gdf.index.is_unique or not to_gdf.index.is_unique:
         raise AttributeError("Both 'from_gdf' and 'to_gdf' GeoDataFrames "
                              "must have unique indices.")
@@ -81,7 +81,7 @@ def areal_apportionment(
     from_gdf = from_gdf.reset_index(names=from_index_col)
     to_gdf2 = to_gdf2.reset_index(names=to_index_col)
     union = from_gdf.overlay(to_gdf2, how="union", keep_geom_type=False)
-    union[union_area_col] = union[en_cmn.GPD_GEOM_COL].area
+    union[union_area_col] = union[GPD_GEOM_COL].area
 
     # Remove union geometries with areas below the tolerance.
     # Note that in doing an "inner" join in the merge operation we are
