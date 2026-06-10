@@ -155,40 +155,40 @@ def prepare_gdf_for_count_processing(
     """
     gdf = gpd.GeoDataFrame(gdf)
     gdf[[LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR]] = gdf.apply(
-            lambda row: _calculate_ls_angles(row, axis_offset),
+            lambda row: calculate_ls_angles(row, axis_offset),
             axis=1,
             result_type='expand'
         )
     return gdf
 
 
-def _calculate_ls_angles(
+def calculate_ls_angles(
         row: pd.Series,
         axis_offset: float
     ) -> tuple[str, str, str]:
     """ Calculates angles on a linestring to prepare for validation counts."""
     ls = row.geometry
-    first_pt = _find_ls_vertex_by_index(ls, 0)
-    second_pt = _find_ls_vertex_by_index(ls, 1)
-    secondlast_pt = _find_ls_vertex_by_index(ls, -2)
-    last_pt = _find_ls_vertex_by_index(ls, -1)
+    first_pt = find_ls_vertex_by_index(ls, 0)
+    second_pt = find_ls_vertex_by_index(ls, 1)
+    secondlast_pt = find_ls_vertex_by_index(ls, -2)
+    last_pt = find_ls_vertex_by_index(ls, -1)
 
-    from_dir = _calculate_direction(first_pt, second_pt, axis_offset)
-    to_dir = _calculate_direction(secondlast_pt, last_pt, axis_offset)
-    ft_dir = _calculate_direction(first_pt, last_pt, axis_offset)
+    from_dir = calculate_direction(first_pt, second_pt, axis_offset)
+    to_dir = calculate_direction(secondlast_pt, last_pt, axis_offset)
+    ft_dir = calculate_direction(first_pt, last_pt, axis_offset)
     return (from_dir, to_dir, ft_dir)
 
 
-def _calculate_direction(
+def calculate_direction(
         st_pt: Point, end_pt: Point, axis_offset: float
     ) -> str:
     """ Calculate cartesian direction (NB, SB, EB, WB) between two points. """
-    angle = _calculate_angle(st_pt, end_pt)
-    angle = _rotate_angle(angle, axis_offset)
-    return _convert_angle_to_cartesian(angle)
+    angle = calculate_angle(st_pt, end_pt)
+    angle = rotate_angle(angle, axis_offset)
+    return convert_angle_to_cartesian(angle)
 
 
-def _find_ls_vertex_by_index(
+def find_ls_vertex_by_index(
         ls: LineString | MultiLineString, 
         i: int
     ) -> Point:
@@ -223,7 +223,7 @@ def _find_ls_vertex_by_index(
         raise AttributeError(err_msg)
 
 
-def _calculate_angle(st_pt: Point, end_pt: Point) -> float:
+def calculate_angle(st_pt: Point, end_pt: Point) -> float:
     """ Calculate the angle between two points.
 
     Points should be in a projected coordinate system.
@@ -243,7 +243,7 @@ def _calculate_angle(st_pt: Point, end_pt: Point) -> float:
     return atan2(dy, dx) * 180.0 / pi
 
    
-def _rotate_angle(angle: float, axis_offset: float) -> float:
+def rotate_angle(angle: float, axis_offset: float) -> float:
     """ Rotate angle to account for local N-S-E-W orientation.
     
     Args:
@@ -267,7 +267,7 @@ def _rotate_angle(angle: float, axis_offset: float) -> float:
     return angle
 
 
-def _convert_angle_to_cartesian(angle: float) -> str:
+def convert_angle_to_cartesian(angle: float) -> str:
     """ Convert angle to cartesian (NB, SB, EB, WB) direction.
 
     Args:
