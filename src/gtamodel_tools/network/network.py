@@ -16,10 +16,10 @@ import numpy as np
 from os import PathLike
 import pandas as pd
 from pathlib import Path
-from shapely import Polygon
+from shapely import Point, Polygon
 from typing import Self, Type
 
-# from gtamodel_tools.common.gis import calc_linestring_orientation
+from gtamodel_tools.common.gis import calculate_direction
 import gtamodel_tools.common.spatial_aggregator as sa
 from gtamodel_tools.config import Config
 from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
@@ -121,23 +121,42 @@ class Network(object):
             nwp_fp:
                 Path to network package (.nwp) containing network and
                 (optionally) results.
-            coding_standard:
-                Currently must be one of ['ncs11', 'ncs16', 'ncs22']
             node_attributes:
                 Node extra attributes to import. If None will import all node 
-                extra attributes. To skip node extra attribute imports, set to [].
-                Default is None
+                extra attributes. To skip node extra attribute imports, 
+                set to []. Default is None.
             link_attributes: 
                 Link extra attributes to import. If None will import all link 
-                extra attributes. To skip link extra attribute imports, set to []
-                Default is None
+                extra attributes. To skip link extra attribute imports, 
+                set to []. Default is None.
             tline_attributes:
                 Transit line extra attributes to import. If None will import all 
-                transit line extra attributes. To skip node transit line attribute 
-                imports, set to []. Default is None
+                transit line extra attributes. To skip node transit line 
+                attribute imports, set to []. Default is None.
 
         
         """
+        if self.network_crs is None:
+            raise RuntimeError(
+                "Network CRS must be defined in config to read network."
+            )
+        if self.grid_offset is None:
+            raise RuntimeError(
+                "Grid offset must be defined in config to read network."
+            )
+        if self.automode_id is None:
+            raise RuntimeError(
+                "Automode ID must be defined in config to read network."
+            )
+        if self.link_freeflow_speed_col is None:
+            raise RuntimeError(
+                "Link freeflow speed column must be defined in config to read network."
+            )
+        if self.link_lane_capacity_col is None:
+            raise RuntimeError(
+                "Link lane capacity column must be defined in config to read network."
+            )
+
         linkcols_rename = {'data1': 'ul1', 'data2': 'ul2', 'data3': 'ul3'}
         tlinecols_rename = {'data1': 'ut1', 'data2': 'ut2', 'data3': 'ut3'}
         tsegcols_rename = {'data1': 'uS1', 'data2': 'uS2', 'data3': 'uS3'}
@@ -237,8 +256,8 @@ class Network(object):
         self.base_tonode_col = 'base_tonode'
         print('  Applying link classifications.')
         self.apply_link_classification()
-        # print('  Calculating link cartesian directions.')
-        # self.calculate_link_direction()
+        print('  Calculating link cartesian directions.')
+        self.calculate_link_direction()
         print('  Assigning to transit operators from transit line ID')
         self.apply_transit_operator()
         print('  Applying summary node and zone ranges.')
@@ -281,16 +300,20 @@ class Network(object):
                 fltr = self.links[v['attr']].isin(v['values'])
                 self.links.loc[fltr, self.linkclass] = k  
 
-    # def calculate_link_direction(self) -> None:
-    #     """ 
-    #     Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
-    #     Direction is based on North direction, which can be offset to a 
-    #     perceived north direction in the region. This offset is defined
-    #     in the network coding standard. 
-    #     """
-    #     self.links[self.link_dir_col] = self.links.apply(
-    #         lambda x: calc_linestring_orientation(
-    #             x[self.geometry_col], self.grid_offset, 'cartesian'), axis=1)
+    def calculate_link_direction(self) -> None:
+        """ 
+        Calculate link direction (NE, EB, SB, WB) based on node coordinates. 
+        Direction is based on North direction, which can be offset to a 
+        perceived north direction in the region. This offset is defined
+        in the network coding standard. 
+        """
+        def calc_link_direction_(row):
+            frompt = Point(row.geometry.coords[0])
+            topt = Point(row.geometry.coords[-1])
+            return calculate_direction(frompt, topt, self.grid_offset)
+
+        self.links[self.link_dir_col] = self.links.apply(
+            lambda x: calc_link_direction_(x), axis=1)
 
     def apply_transit_operator(self):
         """ 
