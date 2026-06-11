@@ -27,6 +27,12 @@ class SpatialAggregator(ABC):
     def name(self) -> Hashable:
         """ Returns the spatial aggregator name."""
         pass
+
+    @property
+    @abstractmethod
+    def index(self) -> pd.Index:
+        """ Returns mapping index. """
+        pass
 class ModelRegionSpatialAggregator(SpatialAggregator):
     REGION_ID = "model_region"
     def __init__(self, name, ids, **_unused):
@@ -50,6 +56,10 @@ class ModelRegionSpatialAggregator(SpatialAggregator):
     @property
     def name(self) -> Hashable:
         return self._spatial_aggregation.name
+    
+    @property
+    def index(self) -> pd.Index:
+        return self._spatial_aggregation.index
 
 class OneLevelMappingSpatialAggregator(SpatialAggregator):
     def __init__(self, name, lvl1_mapping, **_unused):
@@ -75,6 +85,10 @@ class OneLevelMappingSpatialAggregator(SpatialAggregator):
     @property
     def name(self) -> Hashable:
         return self._spatial_aggregation.name
+
+    @property
+    def index(self) -> pd.Index:
+        return self._spatial_aggregation.index
 
 class TwoLevelMappingSpatialAggregator(SpatialAggregator):
     def __init__(self, name, lvl1_mapping, lvl2_mapping, **_unused):
@@ -104,6 +118,10 @@ class TwoLevelMappingSpatialAggregator(SpatialAggregator):
     def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
+    @property
+    def index(self) -> pd.Index:
+        return self._spatial_aggregation.index
+    
 class CustomRangesSpatialAggregator(SpatialAggregator):
     def __init__(self, name, ids, ranges, **_unused):
         if name is None or ids is None or ranges is None:
@@ -112,7 +130,9 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
                 "`ids` and `ranges` parameters."
             )
         index = pd.Index(ids, dtype=np.uint32)
-        s = pd.Series(index=index, data=None, name=name)
+        s = pd.Series(
+            index=index, data=None, name=name, dtype=type(ranges[0][0])
+        )
         for r0, r1, r2 in ranges:
             r_label = r0
             r_min = r1
@@ -138,6 +158,10 @@ class CustomRangesSpatialAggregator(SpatialAggregator):
     def name(self) -> Hashable:
         return self._spatial_aggregation.name
 
+    @property
+    def index(self) -> pd.Index:
+        return self._spatial_aggregation.index
+    
 class ShapefileSpatialAggregator(SpatialAggregator):
     def __init__(self, name, points, areas, **_unused):
         if not isinstance(points, gpd.GeoDataFrame) or not \
@@ -174,6 +198,11 @@ class ShapefileSpatialAggregator(SpatialAggregator):
     @property
     def name(self) -> Hashable:
         return self._spatial_aggregation.name
+
+    @property
+    def index(self) -> pd.Index:
+        return self._spatial_aggregation.index
+    
 
 spatial_aggregators = {
     "model_region": ModelRegionSpatialAggregator,

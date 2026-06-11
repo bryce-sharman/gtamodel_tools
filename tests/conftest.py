@@ -4,6 +4,7 @@ import geopandas as gpd
 import pandas as pd
 
 import pytest
+from shapely.lib import length
 
 import gtamodel_tools
 from gtamodel_tools.common.spatial_aggregator import create_spatial_aggregator, SpatialAggregator
@@ -23,66 +24,6 @@ def regnode_ids() -> list[int]:
         209, 210, 211, 212, 213, 214
     ]
 
-@pytest.fixture
-def szdict_zones() -> dict[int, int]:
-    return {1: 3, 3: 2, 4: 2, 5: 1} 
-
-@pytest.fixture
-def szdict_regnodes() -> dict[int, int]:
-    return {
-        101: 3, 103: 2, 104: 2, 105: 1, 200: 3, 201: 3, 202: 3, 203: 3, 
-        204: 3, 205: 3, 206: 3, 207: 3, 208: 1, 209: 1, 210: 1, 
-        211: 1, 212: 1, 213: 1, 214: 1
-    }
-
-
-@pytest.fixture
-def sz2lvldict1_zones() -> dict[int, str]:
-    return {1: '3a', 3: '2a', 4: '2b', 5: '1a'}
-
-@pytest.fixture
-def sz2lvldict2_zones() -> dict[str, int]:
-    return {'1a': 1, '2a': 2, '2b': 2, '3a': 3}
-
-
-@pytest.fixture
-def sz2lvldict1_regnodes() -> dict[int, str]:
-    return {
-        101: '3a', 103: '2a', 104: '2b', 105: '1a', 200: '3a', 201: '3a', 
-        202: '3a', 203: '3a', 204: '3b', 205: '3b', 206: '3b', 207: '3b', 
-        208: '1b', 209: '1b', 210: '1b', 211: '1b', 212: '1b', 213: '1a', 
-        214: '1a'
-    } 
-
-@pytest.fixture
-def sz2lvldict2_regnodes() -> dict[str, int]:
-    return {'1a': 1, '1b': 1, '2a': 2, '2b': 2, '3a': 3, '3b': 3} 
-
-@pytest.fixture
-def szcustomranges_zones () -> list[tuple[int, int, int]]:
-    return [
-        (3, 1, 2), 
-        (2, 3, 5), 
-        (1, 5, 6)
-    ]
-
-@pytest.fixture
-def szcustomranges_regnodes () -> list[tuple[int, int, int]]:
-    return [
-        (3, 101, 102), 
-        (2, 103, 105), 
-        (1, 105, 106),
-        (3, 200, 208),
-        (1, 208, 215),
-    ]
-
-@pytest.fixture
-def sz_gdf(testdata_path) -> gpd.GeoDataFrame:
-    shp_path = testdata_path / "SZ_definition" / "SZ_definition.shp"
-    gdf = gpd.read_file(shp_path)
-    return gdf.set_index('id')
-
-3
 @pytest.fixture
 def testdata_path() -> Path:
     # This line creates a Path object starting at 
@@ -183,22 +124,34 @@ def pm_transit_network(test_transit_summary_config) -> Network:
     return net
 
 
-#region Spatial aggregators
+#region 1-level spatial aggregators
+# These are included here as they are often a reference for the other 
+# aggregator tests
 @pytest.fixture
-def sa_model_region_zones(zone_ids) -> type[SpatialAggregator]:
-    return create_spatial_aggregator(
-        aggregation_type='model_region', 
-        name='sa_modelregion_zones', 
-        ids=zone_ids
-    )
+def szdict_zones() -> dict[int, int]:
+    return {1: 3, 3: 2, 4: 2, 5: 1} 
 
 @pytest.fixture
-def sa_model_region_regnodes(regnode_ids) -> type[SpatialAggregator]:
-    return create_spatial_aggregator(
-        aggregation_type='model_region', 
-        name='sa_modelregion_regnodes', 
-        ids=regnode_ids
-    )
+def szdict_zones_str() -> dict[int, str]:
+    return {1: 'sz3', 3: 'sz2', 4: 'sz2', 5: 'sz1'} 
+
+@pytest.fixture
+def szdict_regnodes() -> dict[int, int]:
+    return {
+        101: 3, 103: 2, 104: 2, 105: 1, 200: 3, 201: 3, 202: 3, 203: 3, 
+        204: 3, 205: 3, 206: 3, 207: 3, 208: 1, 209: 1, 210: 1, 
+        211: 1, 212: 1, 213: 1, 214: 1
+    }
+
+@pytest.fixture
+def szdict_regnodes_str() -> dict[int, str]:
+    return {
+        101: 'sz3', 103: 'sz2', 104: 'sz2', 105: 'sz1', 
+        200: 'sz3', 201: 'sz3', 202: 'sz3', 203: 'sz3', 
+        204: 'sz3', 205: 'sz3', 206: 'sz3', 207: 'sz3', 
+        208: 'sz1', 209: 'sz1', 210: 'sz1', 211: 'sz1', 
+        212: 'sz1', 213: 'sz1', 214: 'sz1'
+    }
 
 @pytest.fixture
 def sa_1lvl_zones(szdict_zones)-> type[SpatialAggregator]:
@@ -206,6 +159,14 @@ def sa_1lvl_zones(szdict_zones)-> type[SpatialAggregator]:
         aggregation_type='one_level_mapping', 
         name='sa_1lvl_zones', 
         lvl1_mapping=szdict_zones
+    )
+
+@pytest.fixture
+def sa_1lvl_zones_str(szdict_zones_str)-> type[SpatialAggregator]:
+    return create_spatial_aggregator(
+        aggregation_type='one_level_mapping', 
+        name='sa_1lvl_zones_str', 
+        lvl1_mapping=szdict_zones_str
     )
 
 @pytest.fixture
@@ -217,76 +178,15 @@ def sa_1lvl_regnodes(szdict_regnodes)-> type[SpatialAggregator]:
     )
 
 @pytest.fixture
-def sa_2lvl_zones(
-        sz2lvldict1_zones, sz2lvldict2_zones
-    )-> type[SpatialAggregator]:
+def sa_1lvl_regnodes_str(szdict_regnodes_str)-> type[SpatialAggregator]:
     return create_spatial_aggregator(
-        aggregation_type='two_level_mapping', 
-        name='sa_2lvl_zones', 
-        lvl1_mapping=sz2lvldict1_zones, 
-        lvl2_mapping=sz2lvldict2_zones
-     )
-
-@pytest.fixture
-def sa_2lvl_regnodes(
-        sz2lvldict1_regnodes, 
-        sz2lvldict2_regnodes
-    )-> type[SpatialAggregator]:
-    return create_spatial_aggregator(
-        aggregation_type='two_level_mapping', 
-        name='sa_2lvl_regnodes', 
-        lvl1_mapping=sz2lvldict1_regnodes, 
-        lvl2_mapping=sz2lvldict2_regnodes
-     )
-
-@pytest.fixture
-def sa_customranges_zones(
-        zone_ids, 
-        szcustomranges_zones
-    )-> type[SpatialAggregator]:   
-    return create_spatial_aggregator(
-        aggregation_type='custom_ranges', 
-        name='sa_customranges_zones', 
-        ids=zone_ids,
-        ranges=szcustomranges_zones
-    )      
-
-@pytest.fixture
-def sa_customranges_regnodes(
-        regnode_ids, 
-        szcustomranges_regnodes
-    )-> type[SpatialAggregator]:    
-    return create_spatial_aggregator(
-        aggregation_type='custom_ranges', 
-        name='sa_customranges_zones', 
-        ids=regnode_ids,
-        ranges=szcustomranges_regnodes
-    )  
-
-@pytest.fixture
-def sa_shpfile_zones(
-        sz_gdf, 
-        am_auto_network
-    )-> type[SpatialAggregator]:   
-    nodes = am_auto_network.nodes.copy()
-    nodes = nodes.loc[nodes['is_centroid'] == True]
-    return create_spatial_aggregator(
-        aggregation_type='shapefile', 
-        name='sa_shpfile_zones', 
-        points=nodes,
-        areas=sz_gdf
+        aggregation_type='one_level_mapping', 
+        name='sa_1lvl_regnodes_str', 
+        lvl1_mapping=szdict_regnodes_str
     )
+#endregion
 
-@pytest.fixture
-def sa_shpfile_regnodes(
-        sz_gdf, 
-        am_auto_network
-    )-> type[SpatialAggregator]:   
-    nodes = am_auto_network.nodes.copy()
-    nodes = nodes.loc[nodes['is_centroid'] == False]
-    return create_spatial_aggregator(
-        aggregation_type='shapefile', 
-        name='sa_shpfile_regnodes', 
-        points=nodes,
-        areas=sz_gdf
-    )
+
+
+
+
