@@ -20,7 +20,8 @@ from shapely import Point, Polygon
 from typing import Self, Type
 
 from gtamodel_tools.common.gis import calculate_direction
-import gtamodel_tools.common.spatial_aggregator as sa
+from gtamodel_tools.common.spatial_aggregator import create_spatial_aggregator
+from gtamodel_tools.common.spatial_aggregator import SpatialAggregator
 from gtamodel_tools.config import Config
 from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
     merge_attributes, read_nwp_node_attributes, read_nwp_link_attributes, \
@@ -270,7 +271,7 @@ class Network(object):
             zone_ranges = []
             for k, v in self.zone_range_defs.items():
                 zone_ranges.append([k, v['min'], v['max']])
-            self.zone_ranges = sa.create_spatial_aggregator(
+            self.zone_ranges = create_spatial_aggregator(
                 'custom_ranges', 
                 ranges=zone_ranges,
                 ids=self.nodes.loc[self.nodes[self.node_is_centroid_col]].index,
@@ -282,7 +283,7 @@ class Network(object):
             node_ranges = []
             for k, v in self.node_range_defs.items():
                 node_ranges.append([k, v['min'], v['max']])
-            self.node_ranges = sa.create_spatial_aggregator(
+            self.node_ranges = create_spatial_aggregator(
                 'custom_ranges', 
                 ranges=node_ranges,
                 ids=self.nodes.index,
@@ -333,14 +334,12 @@ class Network(object):
 
     def filter_link_connectors(self):
         """ Returns copy of links table with connectors removed"""
-        fltr_inode_is_cntrd = self.links.index.get_level_values(
-            self.link_fromnode_col).isin(self.zone_ranges.mapping.index)
-        fltr_jnode_is_cntrd = self.links.index.get_level_values(
-            self.link_tonode_col).isin(self.zone_ranges.mapping.index)
-        return self.links.loc[
-            (~fltr_inode_is_cntrd) & (~fltr_jnode_is_cntrd)].copy()
-
-
+        centroids = self.nodes.loc[self.nodes['is_centroid']].index
+        links = self.links.copy().reset_index()
+        links = links.loc[
+            ~links['inode'].isin(centroids) & ~links['jnode'].isin(centroids)
+        ]
+        return links.set_index(['inode', 'jnode'])
 
 #region Auto traffic summary methods
     def summarize_link_attributes(
@@ -350,7 +349,7 @@ class Network(object):
             *,
             filter_expression: str | None = None,
             congested_threshold: float | None = None,
-            node_aggregation: Type[sa.SpatialAggregator] | None = None,
+            node_aggregation: Type[SpatialAggregator] | None = None,
             aggregate_on_node: str | None = None,
             segment_by_linkclass: bool | None = None,
         ) -> float | pd.DataFrame:
@@ -374,8 +373,8 @@ class Network(object):
                 segment by region. Default is None.
             aggregate_on_node: Used if node_aggregation is defined.
                 Must either match the from-node or to-node column in the 
-                links table. If not defined, then will be set to the 
-                from-node column in the links table.
+                links table (inode or jnode for Emme networks). If not defined, 
+                then will be set to the from-node column in the links table.
             segment_by_linkclass: bool
                 If True, additionally segment VKT by link classification.
         """
@@ -402,10 +401,11 @@ class Network(object):
                 filter_expression = cong_fltr_expr
         # See if we need traffic results and don't have them.
         if not self.has_traffic_results:
-            if self._test_attrs_in_expression(expression, self.traffic_results):
+            if self._test_attrs_in_expression(
+                    expression, self.traffic_results_cols):
                 raise RuntimeError(self.err_msg_no_traffic_results)
             if self._test_attrs_in_expression(
-                    filter_expression, self.traffic_results):
+                    filter_expression, self.traffic_results_cols):
                 raise RuntimeError(self.err_msg_no_traffic_results)
 
         # Set cross-tab columns, either by link facility type
@@ -418,7 +418,7 @@ class Network(object):
                 raise ValueError(
                     f"Invalid parameter 'aggregate_on_node'. Must be either "
                     f"{self.link_fromnode_col} or {self.link_tonode_col}")
-            aggr_colname = node_aggregation.mapping.name
+            aggr_colname = node_aggregation.name
             crosstab_columns = [aggr_colname]
         else:
             crosstab_columns = []
@@ -492,7 +492,7 @@ class Network(object):
                     - 'traffic_vol': auto + additional volumes
     
         """
-        screenlines = screenlines.to_crs(self.links.crs)
+        screenlines = screenlines.to_crs(self.network_crs)
 
         # Filter out the connectors
         links = self.filter_link_connectors()
@@ -519,7 +519,7 @@ class Network(object):
             scrnln_gdf = gpd.GeoDataFrame(
                 index=[scrnln_name],
                 geometry=[scrnln_def.geometry],
-                crs=self.links.crs
+                crs=self.network_crs
             )
             links2 = links.sjoin(scrnln_gdf)
             scrnln_summary = links2.groupby(
@@ -545,11 +545,18 @@ class Network(object):
             screenlines_list.append(scrnln_summary)
         return pd.concat(screenlines_list, axis=0)
     
-    def output_traffic_results_at_countposts(self) -> pd.DataFrame:
+    def output_traffic_results_at_countposts(
+            self, max_distance: float=100.0, tol: float=0.1) -> pd.DataFrame:
         """ 
         Outputs auto, additional volume and total volume at countposts,
         which are defined in the configuration file.
 
+        Args:
+            max_distance: maximum search distance in metres
+                Default is 100 metres.
+            tol: threshold at which to match additional links to a countpost
+                in metres. Default is 0.1 metres.
+                
         Returns:
             pandas DataFrame:
                 - MultiIndex is the countpost description and direction
@@ -557,23 +564,62 @@ class Network(object):
                     auto volume, additional volume, total volume, link 
                     capacity and V/C ratio.
         """
+
         countposts = self.traffic_countposts
-        if countposts is None:
+        if self.traffic_countposts is None:
             raise RuntimeError(
                 "No traffic countposts defined in the configuration file.")
-        countposts = countposts.to_crs(self.links.crs)
-
+        countposts = self.traffic_countposts.to_crs(self.network_crs)
         countposts_col = 'countpost'
+
         # Filter out connectors and non-auto links
         links = self.filter_link_connectors()
         auto_filter = links[self.link_allowed_modes_col].str.contains(
             self.automode_id)
         links = links.loc[auto_filter]
 
-        cp_links = countposts.sjoin_nearest(links, distance_col='distances')
+        # This is the full search list of the links 
+        # (keeping the typehinting happy) by forcing the GeoDataFrame
+        full_list = gpd.GeoDataFrame(links.copy())
+        
+        # Find closest links
+        #   As it is possible for multiple links to have the same distance
+        #   (e.g. reverse links)  but testing has found cases where all links 
+        #   are not picked up sjoin_nearest. Hence I will do this by looping
+        #   through each countpost, and for each countpost iteratively
+        #   removing matched links until distance threshold is exceeded.
+        cp_links_l = []
+        for cp_id, row in countposts.iterrows():
+            # Get a fresh list of the links (keeping the typehinting happy)
+            links = full_list  
+            cp = countposts.loc[[cp_id]]
+            cp_links = cp.sjoin_nearest(links, distance_col='distance')
+            current_dist = cp_links['distance'].min()
+            if current_dist > max_distance:
+                continue
+            cp_links_l.append(cp_links)
+            while True:
+                # Drop the matched links from the links GeoDataFrame
+                linkids_to_drop = list(
+                    cp_links[['inode', 'jnode']].itertuples(
+                        index=False, name=None)
+                )
+                links = links.drop(linkids_to_drop, axis=0)
+                cp_links = cp.sjoin_nearest(links, distance_col='distance')
+                if cp_links['distance'].min() > current_dist + tol:
+                    break
+                current_dist = cp_links['distance'].min()
+                cp_links_l.append(cp_links)
+        cp_links = pd.concat(cp_links_l, axis=0)
+
         cp_links.index.name = countposts_col
         cp_links = cp_links.reset_index()
         cp_links = cp_links.set_index([countposts_col, self.link_dir_col])
+        cp_links.to_clipboard()
+        # Check that the same link doesn't show up for multiple countposts
+        chk = cp_links.groupby(['inode', 'jnode'])['length'].count()
+        if chk.max() > 1:
+            raise RuntimeError('Links were connected to multiple countposts.')
         cp_links = cp_links[[
             self.link_auto_volume_col, 
             self.link_additional_volume_col, 
@@ -618,7 +664,7 @@ class Network(object):
         if countposts is None:
             raise RuntimeError(
                 "No traffic countposts defined in the configuration file.")
-        countposts = countposts.to_crs(self.links.crs)  
+        countposts = countposts.to_crs(self.network_crs)  
 
         # Merge in vehicle capacities
         tsegs = self.tsegments.reset_index()
@@ -876,7 +922,7 @@ class Network(object):
             self, 
             expression: str,
             filter_expression: str | None = None,
-            node_aggregation: Type[sa.SpatialAggregator] | None = None,
+            node_aggregation: Type[SpatialAggregator] | None = None,
             crosstab_columns: str | list[str] | None = None
         ) -> float | pd.DataFrame:
         """ 
@@ -930,7 +976,7 @@ class Network(object):
             raise RuntimeError(self.err_msg_no_transit_results)
 
         # Test if trying to perform node aggregation on a hypernetwork
-        if isinstance(node_aggregation, sa.SpatialAggregator) \
+        if isinstance(node_aggregation, SpatialAggregator) \
                 and self.is_hypernetwork:
             raise RuntimeError(
                 'Cannot perform transit summaries with node aggregations on a '
@@ -963,7 +1009,7 @@ class Network(object):
         #Evalulate expression
         tsegs[self.expr_colname] = tsegs.eval(expression)   
 
-        if not isinstance(node_aggregation, sa.SpatialAggregator):
+        if not isinstance(node_aggregation, SpatialAggregator):
             if crosstab_columns is None:
                 # This is the simple case, no spatial aggregation   
                 return tsegs[self.expr_colname].sum()
@@ -1009,7 +1055,7 @@ class Network(object):
         else:
             return False
 
-    def _read_station_names_file(self) -> pd.Series:
+    def _read_station_names_file(self) -> pd.Series | None:
         """ 
         Reads station names from the station name file, if it exists.
         

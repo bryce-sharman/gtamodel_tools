@@ -22,10 +22,8 @@
 # Network and microsimulation subdirectories
 # model_outputs_subdirectory: Model Outputs
 network_subdirectory: Networks
-microsim_subdirectory: MicroSim Results
 demand_subdirectory: Demand
 los_subdirectory: "LOS Matrices"
-
 
 # Time period definitions
 # auto_pfh must match those in the GTAModel run specifications
@@ -47,18 +45,22 @@ time_period_definitions:
 # Network configuration
 ###############################################################################
 
+# The following entries are required to read a network.
+
 # coordinate reference system underlying network coordinates
 network_crs: EPSG:26917     # UTM 17N (NAD83)
 
 # angle between true-north and local north (degrees counter-clockwise)
 # used for interpretation of validation count data.
-grid_offset: 17 
+grid_offset: 17
 
 # the following inputs reflect Toronto coding standards using Emme
 automode_id: c
 link_freeflow_speed_col: ul2
 link_lane_capacity_col: ul3
 
+# The following entries optional when reading a network, and are
+# used to define summaries.
 
 # User-defined link classifications
 # This is a dictionary, where each item is composed as follows:
@@ -74,63 +76,42 @@ link_classification_defs:
     attr: vdf
     values: [2]
 
-# screenlines_fp: "S:\\Model Runs\\SummaryToolsSupport\\screenline_definitions.shp"
-
 # The following outlines zone ranges, based on the zone number
 # Format is a dictionary where each item is a sub-dictionary (defined as follows)  
 #   the key is the label
 #   min: minimum (inclusive)
 #   max: maximum (exclusive)
-# zone_ranges:
-#   Unassigned: {min: 1, max: 1000}
-#   Toronto: {min: 1000, max: 2000}
-#   Durham: {min: 2000, max: 3000}
-#   York: {min: 3000, max: 4000}
-#   Peel: {min: 4000, max: 5000}
-#   Halton: {min: 5000, max: 6000}
-#   Hamilton: {min: 6000, max: 7000}
-#   Niagara: {min: 7000, max: 7200}
-#   Reserved: {min: 7200, max: 8000}
-#   Haldimand-Norfolk: {min: 8000, max: 8100}
-#   Brant: {min: 8100, max: 8200}
-#   Waterloo: {min: 8200, max: 8500}
-#   Wellington: {min: 8500, max: 8700}
-#   Dufferin: {min: 8700, max: 8800}
-#   Simcoe: {min: 8800, max: 9000}
-#   Kawartha Lakes: {min: 9000, max: 9100}
-#   Peterborough: {min: 9100, max: 9300}
-#   Northumberland: {min: 9300, max: 9400}
-#   Gateways: {min: 9400, max: 9500}
-#   Stations: {min: 9500, max: 10000}
+zone_ranges:
+  Home: {min: 1, max: 2}
+  Internal: {min: 3, max: 5}
+  Work: {min: 5, max: 6}
 
 # The following outlines node ranges, based on the node number
 # Format is a dictionary where each item is a subdictionary (defined as follows)  
 #   the key is the label
 #   min: minimum (inclusive)
 #   max: maximum (exclusive)
-# node_ranges: 
-#   centroid: {min: 0, max: 10000}
-#   Toronto: {min: 10000, max: 20000}
-#   Durham: {min: 20000, max: 30000}
-#   York: {min: 30000, max: 40000}
-#   Peel: {min: 40000, max: 50000}
-#   Halton: {min: 50000, max: 60000}
-#   Hamilton: {min: 60000, max: 70000}
-#   Niagara: {min: 70000, max: 80000}
-#   Haldimand-Norfolk: {min:  80000, max: 81000}
-#   Brant: {min:  81000, max: 82000}
-#   Waterloo: {min:  82000, max: 85000}
-#   Wellington: {min:  85000, max: 87000}
-#   Dufferin: {min:  87000, max: 88000}
-#   Simcoe: {min:  88000, max: 90000}
-#   Kawartha Lakes: {min: 90000, max: 91000}
-#   Peterborough: {min: 91000, max: 92000}
-#   External zones/gateways (Canada): {min: 94000, max: 95000}
-#   External zones/gateways (US): {min: 95000, max: 96000}
-#   BRT/LRT platform: {min: 96000,max:  97000}
-#   Subway platform: {min:  97000, max: 98000}
-#   Hypernetwork nodes: {min: 100000, max: 198000}
-#   GO Rail platform: {min:  198000, max: 199000}
-#   HOV: {min: 200000, max: 1000000}
+node_ranges: 
+  0: {min: 1, max: 10}
+  1: {min: 100, max: 200}
+  2: {min: 200, max: 300}
 
 
+# traffic countposts
+#   key is the countpost label: subdirectory contains the latitude and longitude
+traffic_countposts:
+  link_103_104:
+    latitude: 43.640418
+    longitude: -79.419901
+  link_104_105:
+    latitude: 43.642931
+    longitude: -79.403024
+  link_101_103:
+    latitude: 43.648974
+    longitude: -79.432543
+  link_105_214:
+    latitude: 43.650398
+    longitude: -79.393242
+  invalid:
+    latitude: 43.633542
+    longitude: -79.392540
