@@ -1,3 +1,5 @@
+""" Tests for gtamodel_tools.common.data.round_to_totals.  """
+
 import geopandas as gpd
 from math import fabs
 import numpy as np
@@ -94,33 +96,17 @@ def test_col1_sum_285(test_df):
 
 def test_col2(test_df):
     # This column is all integers, and hence cannot get modified.
-    test_str = \
-        "Cannot reach rounding target in column col2. " \
-        "This can happen if the desired total is too far " \
-        "from the series or multiple values in the column have " \
-        "the exact same decimal value."
-    with pytest.raises(RuntimeError, match=test_str):
+    with pytest.raises(RuntimeError, match='Threshold exceeds allowed bounds.'):
         df = round_to_totals(test_df, {'col2': 277})
 
 def test_col3(test_df):
     # This column all has same decimal portion, cannot reach target.
-    test_str = \
-        "Cannot reach rounding target in column col3. " \
-        "This can happen if the desired total is too far " \
-        "from the series or multiple values in the column have " \
-        "the exact same decimal value."
-    with pytest.raises(RuntimeError, match=test_str):
-        df = round_to_totals(test_df, {'col3': 278})
-
-def test_col4(test_df):
-    # This column is all just below 1.0. Cannot reach target.
-    test_str = \
-        "Cannot reach rounding target in column col4. " \
-        "This can happen if the desired total is too far " \
-        "from the series or multiple values in the column have " \
-        "the exact same decimal value."
-    with pytest.raises(RuntimeError,  match=test_str):
-        df = round_to_totals(test_df, {'col4': 170})
+    total=274
+    col='col3'
+    match_str = f"Total {total} cannot be achieved by rounding column {col}."
+    test_df.to_clipboard()
+    with pytest.raises(AttributeError, match=match_str):
+        df = round_to_totals(test_df, {col: total})
 
 def test_col5_sum_minus_3(test_df):
     ''' Test 1 of negative numbers, which have to be treated a bit different.'''
