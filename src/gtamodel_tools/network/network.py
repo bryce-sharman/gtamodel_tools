@@ -20,6 +20,7 @@ from shapely import Point, Polygon
 from typing import Self, Type
 
 from gtamodel_tools.common.gis import calculate_direction
+from gtamodel_tools.common.screenlines import read_screenlines
 from gtamodel_tools.common.spatial_aggregator import create_spatial_aggregator
 from gtamodel_tools.common.spatial_aggregator import SpatialAggregator
 from gtamodel_tools.config import Config
@@ -28,7 +29,6 @@ from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
     read_nwp_traffic_results, read_nwp_transit_vehicles, \
     read_nwp_transit_network, read_nwp_transit_line_attributes, \
     read_nwp_transit_segment_results
-
 
 idx = pd.IndexSlice
 
@@ -40,14 +40,6 @@ class Network(object):
     Args:
         config: gtamodel_tools.config.Config
             Stored post-processsing configuration.
-        start_time: int | None
-            Start time of the network assignment_period in minutes after 
-            midnight. Is None if network does not have auto or transit 
-            assignment results. Default is None.
-        end_time: int | None
-            End time of the network assignment_period in minutes after 
-            midnight. Is None if network does not have auto or transit 
-            assignment results. Default is None.
         auto_phf: float | None
             Auto peak-hour factor. Is None if network does not have auto 
             assignment results. Default is None.
@@ -59,8 +51,6 @@ class Network(object):
     def __init__(
             self, 
             config: Config, 
-            start_time: int|None=None, 
-            end_time: int|None=None,
             auto_phf: float|None=None,
             transit_phf: float|None=None
             ) -> None:
@@ -81,8 +71,6 @@ class Network(object):
         self.traffic_countposts = config.traffic_countposts
         self.transit_countposts = config.transit_countposts
 
-        self.start_time = start_time
-        self.end_time = end_time
         self.auto_phf = auto_phf
         self.transit_phf = transit_phf
 
@@ -290,6 +278,7 @@ class Network(object):
                 name='node_ranges'
             )
 
+
     def apply_link_classification(self):
         """ 
         Add link classification column, as defined in network coding standard
@@ -465,20 +454,15 @@ class Network(object):
                 return final.unstack(fill_value=0)  # unstack last level
 
     def summarize_traffic_across_screenlines(
-            self, 
-            screenlines: gpd.GeoDataFrame) -> pd.DataFrame:
+            self, screenlines_fp: PathLike, index_col: str
+        ) -> pd.DataFrame:
         """ Summarize traffic volumes and capacity across screenlines:
     
         Args:
-            screenlines: gpd.GeoDataFrame with one row per screenline.
-                This GeoDataFrame is expected to have the following format:
-                - Index is cthe screenline name 
-                - geometry column is a LineString that defines the screenline
-                - Four columns: Equiv_NB, Equiv_Eb, Equiv_SB, Equiv_WB, which
-                  apply a direction label to links, based on their cartesian
-                  angle ('NB', 'EB', 'SB', 'WB', respectively). For example,
-                  if 'Equiv_NB' is set to 'C1', then all NB links are marked
-                  as being in the direction 'C1'.
+            screenlines_fp: Path to shapefile, or equivalent
+            index_col: column in geospatial data containing the 
+                screenlines names.
+
         Returns:
             pd.DataFrame
                 Outputs one row per combination of screenline and direction
@@ -492,28 +476,29 @@ class Network(object):
                     - 'traffic_vol': auto + additional volumes
     
         """
+        screenlines = read_screenlines(screenlines_fp, index_col)
         screenlines = screenlines.to_crs(self.network_crs)
 
-        # Filter out the connectors
+        # Filter out the connectors and non-auto links
         links = self.filter_link_connectors()
-
-        # Remove non-auto-links
         fltr = links[self.link_allowed_modes_col].str.contains(self.automode_id)
-        links = links.loc[fltr]
+        links = gpd.GeoDataFrame(links.loc[fltr])  # keep typehinting happy
+
         summary_columns = ['n_links', 'n_lanes', 'capacity']
         aggr_dict = {
             self.link_numlanes_col: ['count', 'sum'],       
             self.link_auto_capacity_col: 'sum',
         }
         if self.has_traffic_results:
+            summary_columns.extend([
+                'auto_vol', 'additional_vol', 'traffic_vol'])
             aggr_dict[self.link_auto_volume_col] = 'sum'
             aggr_dict[self.link_additional_volume_col] = 'sum'
             aggr_dict[self.link_total_volume_col] = 'sum'
-            summary_columns.extend([
-                'auto_vol', 'additional_vol', 'traffic_vol'])
 
         # Because links can be defined in multiple screenlines, links are
-        # matched one-by-one to each screenline.
+        # matched one-by-one to each screenline. The final step is to concat
+        # all the individual screenlines together.
         screenlines_list = []
         for scrnln_name, scrnln_def in screenlines.iterrows():
             scrnln_gdf = gpd.GeoDataFrame(
@@ -522,28 +507,29 @@ class Network(object):
                 crs=self.network_crs
             )
             links2 = links.sjoin(scrnln_gdf)
+            equiv_dir = {
+                'NB': scrnln_def['EquivNB'], 
+                'EB': scrnln_def['EquivEB'],
+                'SB': scrnln_def['EquivSB'],
+                'WB': scrnln_def['EquivWB']
+            }
+            links2['equiv_linkdir'] = links2[self.link_dir_col].map(equiv_dir)
             scrnln_summary = links2.groupby(
-                ['index_right', self.link_dir_col]).agg(aggr_dict)
+                ['index_right', 'equiv_linkdir']).agg(aggr_dict)
             scrnln_summary.columns = summary_columns
             scrnln_summary.index.names = ['screenline', 'dir']
             scrnln_summary.columns.name = 'measure'
-            # Apply direction mappings
-            scrnln_summary = scrnln_summary.reset_index()
-            mapping_dict = {
-                'NB': scrnln_def['Equiv_NB'], 
-                'EB': scrnln_def['Equiv_EB'],
-                'SB': scrnln_def['Equiv_SB'],
-                'WB': scrnln_def['Equiv_WB']
-            }
-            scrnln_summary['dir'] = scrnln_summary['dir'].map(mapping_dict)
-            scrnln_summary = scrnln_summary.groupby(['screenline', 'dir']).sum()
+            scrnln_summary = scrnln_summary.groupby(
+                level=['screenline', 'dir']).sum()
             if len(scrnln_summary) > 2:
                 print(f'More than 2 directions produced '
                       f'for screenline {scrnln_name}.')
                 print('These are the links matched to this screenline:')
                 print(links2[['link_dir']])
             screenlines_list.append(scrnln_summary)
-        return pd.concat(screenlines_list, axis=0)
+        final = pd.concat(screenlines_list, axis=0)
+        final['vcr'] = final['traffic_vol'] / final['capacity']
+        return final
     
     def output_traffic_results_at_countposts(
             self, max_distance: float=100.0, tol: float=0.1) -> pd.DataFrame:

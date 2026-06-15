@@ -25,6 +25,8 @@ def test_traffic_at_countposts(am_auto_network):
             ],
             names=['countpost',	'link_dir']
     )
+    # I'd really rather not hard-code these test results, maybe
+    # change this later to something a bit more maintainable.
     ref_results = pd.DataFrame(
         index=mi,
         columns=[

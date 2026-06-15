@@ -83,7 +83,6 @@ class Config(object):
         self.link_lane_capacity_col = c.get('link_lane_capacity_col')
 
         self.link_classification_defs = c.get('link_classification_defs')
-        self.screenlines_fp = c.get('screenlines_fp')
         self.zone_ranges = c.get('zone_ranges')
         self.node_ranges = c.get('node_ranges')
         self.transit_operator_regexprs = c.get('transit_opererator_regexprs')

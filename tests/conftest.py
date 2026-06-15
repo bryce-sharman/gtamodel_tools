@@ -93,7 +93,12 @@ def test_microsim_summary_config(
 # Networks
 @pytest.fixture
 def am_auto_network(test_auto_summary_config) -> Network:
-    net = Network(test_auto_summary_config)
+    tp_def = test_auto_summary_config.time_periods['AM']
+    net = Network(
+        test_auto_summary_config,
+        auto_phf=tp_def['auto_phf'],
+        transit_phf=None
+    )
     net.read_from_nwp(
         test_auto_summary_config.networks_subdir / 'AM_Auto.nwp'
     )
@@ -101,7 +106,12 @@ def am_auto_network(test_auto_summary_config) -> Network:
 
 @pytest.fixture
 def pm_auto_network(test_auto_summary_config) -> Network:
-    net = Network(test_auto_summary_config)
+    tp_def = test_auto_summary_config.time_periods['PM']
+    net = Network(
+        test_auto_summary_config,
+        auto_phf = tp_def['auto_phf'],
+        transit_phf=None
+    )
     net.read_from_nwp(
         test_auto_summary_config.networks_subdir / 'PM_Auto.nwp'
     )
