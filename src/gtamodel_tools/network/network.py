@@ -40,17 +40,28 @@ class Network(object):
     Args:
         config: gtamodel_tools.config.Config
             Stored post-processsing configuration.
+        start_time: int | None
+            Start time of the network assignment_period in minutes after 
+            midnight. This is needed period-level transit summaries.
+            Default is None.
+        end_time: int | None
+            End time of the network assignment_period in minutes after 
+            midnight. This is needed period-level transit summaries. 
+            Default is None.
         auto_phf: float | None
             Auto peak-hour factor. Is None if network does not have auto 
             assignment results. Default is None.
         transit_phf: float | None
             Transit peak-hour factor. Is None if network does not have transit 
             assignment results. Default is None.
+
     """
 
     def __init__(
             self, 
             config: Config, 
+            start_time: int|None=None, 
+            end_time: int|None=None,
             auto_phf: float|None=None,
             transit_phf: float|None=None
             ) -> None:
@@ -71,6 +82,8 @@ class Network(object):
         self.traffic_countposts = config.traffic_countposts
         self.transit_countposts = config.transit_countposts
 
+        self.start_time = start_time
+        self.end_time = end_time
         self.auto_phf = auto_phf
         self.transit_phf = transit_phf
 
@@ -713,6 +726,7 @@ class Network(object):
         final.index.names = [countposts_col, self.link_dir_col]
         return final[[volume_col, capacity_col, vcr_col]]
 
+
     def calculate_line_profiles(
             self) -> pd.DataFrame:
         """ 
@@ -748,6 +762,7 @@ class Network(object):
         final = final.reset_index()
         final = final.set_index(['Line', 'Direction'] + final_index_names)
         return final
+
 
     def calc_line_profile(
             self, tline_ids: str | list[str], 
@@ -829,6 +844,7 @@ class Network(object):
         line_profile = self.apply_stnname_mapping(line_profile, stn_labels)
         return line_profile
 
+
     def calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
         """ 
         Helper function to get the boardings, alightings and volume along 
@@ -869,6 +885,7 @@ class Network(object):
             [self.tline_line_col, self.link_tonode_col], drop=True)
         return tsegs
 
+
     def remove_unused_loops(self, line_profile: pd.DataFrame) -> pd.DataFrame:
         """ Remove the loop column if the line is not looped. """
         tseg_loop = line_profile.index.get_level_values(self.tseg_loop_col)
@@ -876,6 +893,7 @@ class Network(object):
             return line_profile.droplevel(self.tseg_loop_col, axis=0)
         else:
             return line_profile
+
 
     def apply_stnname_mapping(
             self, 
@@ -904,15 +922,18 @@ class Network(object):
             line_profile = line_profile.drop(self.link_fromnode_col, axis=1)
         return line_profile 
 
+
     def summarize_transit_segments(
             self, 
-            expression: str,
+            summary: str,
+            *,
             filter_expression: str | None = None,
             node_aggregation: Type[SpatialAggregator] | None = None,
             crosstab_columns: str | list[str] | None = None
         ) -> float | pd.DataFrame:
         """ 
-        Summarizes an expression over a transit segment table.
+        Summarizes an expression over a transit segment table. Summaries
+        are always output for the transit period.
 
         Can optionally choose to:
         - apply arbitrary filters.
@@ -922,8 +943,9 @@ class Network(object):
 
         Arguments:
             expression: 
-                Value to be aggregated. This is an expression that 
-                will be evaluatated using pandas.eval.
+            summary: str:
+                summary: One of 'vkt', 'vht', 'pkt', 'pht', or a custom 
+                expression
             filter_expression: 
                 Defines transit segment filter using expression that will be  
                 evaluatated using pandas.eval. If None then no filter is 
@@ -942,6 +964,18 @@ class Network(object):
         def test_attrs_in_expr_or_filter(expression, filter_expression, cols):
             return (self._test_attrs_in_expression(expression, cols) or 
                 self._test_attrs_in_expression(filter_expression, cols))
+
+        # Lookup the expression
+        if summary == 'vkt':
+            expression = self.transit_vkt_expr
+        elif summary == 'vht':
+            expression = self.transit_vht_expr
+        elif summary == 'pkt':
+            expression = self.transit_pkt_expr
+        elif summary == 'pht':
+            expression = self.transit_pht_expr
+        else:
+            expression = summary
 
         # Test if transit line, transit vehicle or link attributes are 
         # defined in either the expression or the filter
@@ -991,7 +1025,6 @@ class Network(object):
             tsegs[self.fltr_colname] = \
                 tsegs.eval(filter_expression).astype(bool)
         tsegs = tsegs.loc[tsegs[self.fltr_colname]]
-
         #Evalulate expression
         tsegs[self.expr_colname] = tsegs.eval(expression)   
 
@@ -1018,6 +1051,7 @@ class Network(object):
                 aggregation_columns = [aggr_colname] + crosstab_columns
         return tsegs.groupby(
             aggregation_columns)[self.expr_colname].sum()      
+
 
     def _test_if_hypernetwork(self) -> bool:
         """ Look for overlapping links, indicating this is a hypernetwork. """
@@ -1332,14 +1366,38 @@ class Network(object):
         return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
 
     @property
+    def transit_vkt_expr(self) -> str:
+        if self.start_time is None or self.end_time is None:
+            raise ValueError(
+                'Network period start and end times must be defined to '
+                'calculated transit VKT.'
+                )
+        return f'{self.link_length_col} * ' \
+               f'({self.end_time} - {self.start_time}) / ' \
+               f'{self.tline_headway_col}'
+
+    @property
+    def transit_vht_expr(self) -> str:
+        raise NotImplementedError(
+            'Cannot calculate transit VHT as transit travel time not currently ' \
+            'exported by TMG export_network_package tool.'
+        )
+
+    @property
     def transit_pkt_expr(self) -> str:
+        # Volumes are already peak-period
         return f'{self.link_length_col} * {self.tsegments_volume_col}'
+
+    @property
+    def transit_pht_expr(self) -> str:
+        raise NotImplementedError(
+            'Cannot calculate transit PHT as transit travel time not currently ' \
+            'exported by TMG export_network_package tool.'
+        )
 
     @property
     def is_hypernetwork(self) -> bool:
         return self._test_if_hypernetwork()
-
-
 
 #endregion
 

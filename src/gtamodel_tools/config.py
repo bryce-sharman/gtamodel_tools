@@ -85,7 +85,7 @@ class Config(object):
         self.link_classification_defs = c.get('link_classification_defs')
         self.zone_ranges = c.get('zone_ranges')
         self.node_ranges = c.get('node_ranges')
-        self.transit_operator_regexprs = c.get('transit_opererator_regexprs')
+        self.transit_operator_regexprs = c.get('transit_operator_regexprs')
         self.line_profile_definitions = c.get('line_profile_definitions')
         self.stn_transfer_regexprs = c.get('stn_transfer_regexprs')
         self.station_name_filepath = c.get('station_name_filepath')

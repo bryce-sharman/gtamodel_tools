@@ -17,12 +17,14 @@ from gtamodel_tools.network import Network
 def zone_ids() -> list[int]:
     return [1, 3, 4, 5]
 
+
 @pytest.fixture
 def regnode_ids() -> list[int]:
     return [
         101, 103, 104, 105, 200, 201, 202, 203, 204, 205, 206, 207, 208, 
         209, 210, 211, 212, 213, 214
     ]
+
 
 @pytest.fixture
 def testdata_path() -> Path:
@@ -40,21 +42,26 @@ def testdata_path() -> Path:
     root_path = src_path.parents[1]
     return root_path / "tests" / "test_data"
 
+
 @pytest.fixture
 def model_output_path(testdata_path) -> Path:
     return testdata_path / 'Test_model_outputs'
+
 
 @pytest.fixture
 def demandmatrices_path(model_output_path) -> Path:
     return model_output_path / 'Demand'
 
+
 @pytest.fixture
 def losmatrices_path(model_output_path) -> Path:
     return model_output_path / 'LOS Matrices'
 
+
 @pytest.fixture
 def microsim_path(model_output_path) -> Path:
     return model_output_path / 'MicroSim Results'
+
 
 @pytest.fixture
 def networks_path(model_output_path) -> Path:
@@ -71,6 +78,7 @@ def test_auto_summary_config(
         config_fp=testdata_path / 'auto_summary_config.yml'
     )
 
+
 @pytest.fixture
 def test_transit_summary_config(
         testdata_path, model_output_path
@@ -79,6 +87,7 @@ def test_transit_summary_config(
         model_outputs_dir=model_output_path, 
         config_fp=testdata_path / 'transit_summary_config.yml'
     )
+
 
 @pytest.fixture
 def test_microsim_summary_config(
@@ -104,6 +113,7 @@ def am_auto_network(test_auto_summary_config) -> Network:
     )
     return net
 
+
 @pytest.fixture
 def pm_auto_network(test_auto_summary_config) -> Network:
     tp_def = test_auto_summary_config.time_periods['PM']
@@ -117,17 +127,29 @@ def pm_auto_network(test_auto_summary_config) -> Network:
     )
     return net
 
+
 @pytest.fixture
 def am_transit_network(test_transit_summary_config) -> Network:
-    net = Network(test_transit_summary_config)
+    tp_def = test_transit_summary_config.time_periods['AM']
+    net = Network(
+        test_transit_summary_config,
+        start_time=tp_def['start_time'],
+        end_time=tp_def['end_time']
+    )
     net.read_from_nwp(
         test_transit_summary_config.networks_subdir / 'AM_Transit.nwp'
     )
     return net
 
+
 @pytest.fixture
 def pm_transit_network(test_transit_summary_config) -> Network:
-    net = Network(test_transit_summary_config)
+    tp_def = test_transit_summary_config.time_periods['PM']
+    net = Network(
+        test_transit_summary_config,
+        start_time=tp_def['start_time'],
+        end_time=tp_def['end_time']
+    )
     net.read_from_nwp(
         test_transit_summary_config.networks_subdir / 'PM_Transit.nwp'
     )
@@ -141,9 +163,11 @@ def pm_transit_network(test_transit_summary_config) -> Network:
 def szdict_zones() -> dict[int, int]:
     return {1: 3, 3: 2, 4: 2, 5: 1} 
 
+
 @pytest.fixture
 def szdict_zones_str() -> dict[int, str]:
     return {1: 'sz3', 3: 'sz2', 4: 'sz2', 5: 'sz1'} 
+
 
 @pytest.fixture
 def szdict_regnodes() -> dict[int, int]:
@@ -152,6 +176,7 @@ def szdict_regnodes() -> dict[int, int]:
         204: 3, 205: 3, 206: 3, 207: 3, 208: 1, 209: 1, 210: 1, 
         211: 1, 212: 1, 213: 1, 214: 1
     }
+
 
 @pytest.fixture
 def szdict_regnodes_str() -> dict[int, str]:
@@ -163,6 +188,7 @@ def szdict_regnodes_str() -> dict[int, str]:
         212: 'sz1', 213: 'sz1', 214: 'sz1'
     }
 
+
 @pytest.fixture
 def sa_1lvl_zones(szdict_zones)-> type[SpatialAggregator]:
     return create_spatial_aggregator(
@@ -170,6 +196,7 @@ def sa_1lvl_zones(szdict_zones)-> type[SpatialAggregator]:
         name='sa_1lvl_zones', 
         lvl1_mapping=szdict_zones
     )
+
 
 @pytest.fixture
 def sa_1lvl_zones_str(szdict_zones_str)-> type[SpatialAggregator]:
@@ -179,6 +206,7 @@ def sa_1lvl_zones_str(szdict_zones_str)-> type[SpatialAggregator]:
         lvl1_mapping=szdict_zones_str
     )
 
+
 @pytest.fixture
 def sa_1lvl_regnodes(szdict_regnodes)-> type[SpatialAggregator]:
     return create_spatial_aggregator(
@@ -186,6 +214,7 @@ def sa_1lvl_regnodes(szdict_regnodes)-> type[SpatialAggregator]:
         name='sa_1lvl_regnodes', 
         lvl1_mapping=szdict_regnodes
     )
+
 
 @pytest.fixture
 def sa_1lvl_regnodes_str(szdict_regnodes_str)-> type[SpatialAggregator]:
