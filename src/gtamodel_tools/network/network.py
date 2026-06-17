@@ -537,7 +537,7 @@ class Network(object):
                 print(f'More than 2 directions produced '
                       f'for screenline {scrnln_name}.')
                 print('These are the links matched to this screenline:')
-                print(links2[['link_dir']])
+                print(links2[[self.link_dir_col]])
             screenlines_list.append(scrnln_summary)
         final = pd.concat(screenlines_list, axis=0)
         final['vcr'] = final['traffic_vol'] / final['capacity']
@@ -632,6 +632,100 @@ class Network(object):
 
 
 #region Transit
+
+    def summarize_transit_across_screenlines(
+            self, screenlines_fp: PathLike, index_col: str
+        ) -> pd.DataFrame:
+        """ Summarize transit volumes and capacity across screenlines:
+    
+        Args:
+            screenlines_fp: Path to shapefile, or equivalent
+            index_col: column in geospatial data containing the 
+                screenlines names.
+
+        Returns:
+            pd.DataFrame
+                Outputs one row per combination of screenline and direction
+                that contains the following:
+                - n_links: number of links in direction
+                - n_lanes: total number of lanes crossing screenline
+                - capacity: total link capacity crossing screenline
+                - if the network has traffic results, also outputs
+                    - 'auto_vol': assigned auto volumes
+                    - 'additional_vol': additional (background) volumes
+                    - 'traffic_vol': auto + additional volumes
+    
+        """
+        screenlines = read_screenlines(screenlines_fp, index_col)
+        screenlines = screenlines.to_crs(self.network_crs)
+
+        # Merge in mode, headway and vehicle capacities
+        tsegs = self.tsegments.reset_index()
+        tsegs = tsegs.merge(
+            self.tlines[[self.tl_mode_col, self.tv_veh_col, self.tl_hdw_col]], 
+            left_on=self.tl_line_col, 
+            right_index=True
+        )
+        tsegs = tsegs.merge(
+            self.tvehicles[[self.tv_vcap_col]], 
+            left_on=self.tv_veh_col, 
+            right_index=True
+        )
+        # Merge in the link geometries cartesian direction columns
+        tsegs = tsegs.merge(
+            self.links[[GPD_GEOM_COL, self.link_dir_col]], 
+            left_on=[self.lk_fnode_col, self.lk_tnode_col], 
+            right_index=True
+        )
+        tsegs = gpd.GeoDataFrame(
+            index=tsegs.index,
+            geometry=tsegs[GPD_GEOM_COL],
+            data=tsegs,
+            crs=self.network_crs
+        )
+        tsegs['n_routes'] = 1
+        summary_columns = ['n_routes']
+        if self.start_time is not None and self.end_time is not None:
+            tsegs['capacity'] = tsegs[self.tv_vcap_col] * \
+                (self.end_time - self.start_time) / tsegs[self.tl_hdw_col]
+            summary_columns.append('capacity')
+        else:
+            print('    Not computing countpost capacity as network period '
+            'start and end times are not defined.')
+        if self.has_transit_results:
+            summary_columns.append('volume')
+
+        # Because links can be defined in multiple screenlines, links are
+        # matched one-by-one to each screenline. The final step is to concat
+        # all the individual screenlines together.
+        screenlines_list = []
+        for scrnln_name, scrnln_def in screenlines.iterrows():
+            scrnln_gdf = gpd.GeoDataFrame(
+                index=[scrnln_name],
+                geometry=[scrnln_def.geometry],
+                crs=self.network_crs
+            )
+            tsegs2 = tsegs.sjoin(scrnln_gdf)
+            equiv_dir = {
+                'NB': scrnln_def['EquivNB'], 
+                'EB': scrnln_def['EquivEB'],
+                'SB': scrnln_def['EquivSB'],
+                'WB': scrnln_def['EquivWB']
+            }
+            tsegs2['equiv_linkdir'] = tsegs2[self.link_dir_col].map(equiv_dir)
+
+            scrnln_summary = tsegs2.groupby(
+                ['index_right', 'equiv_linkdir', self.tl_mode_col]
+            )[summary_columns].sum()
+            scrnln_summary.index.names = ['screenline', 'dir', 'mode']
+            scrnln_summary.columns.name = 'measure'
+            screenlines_list.append(scrnln_summary)
+        final = pd.concat(screenlines_list, axis=0)
+        if 'capacity' in final.columns:
+            final['vcr'] = final['volume'] / final['capacity']
+        return final.sort_index()
+
+
     def output_transit_results_at_countposts(
             self, max_distance: float=100.0, tol: float=0.1) -> pd.DataFrame:
         """ 
@@ -689,7 +783,7 @@ class Network(object):
                 (self.end_time - self.start_time) / tsegs[self.tl_hdw_col]
             output_cols.append(capacity_col)
         else:
-            print('    Not computing countpost capacity as network period'
+            print('    Not computing countpost capacity as network period '
             'start and end times are not defined.')
 
         # Find closest links

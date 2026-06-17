@@ -26,7 +26,7 @@ def summarize_transit_boardings_by_operator(
         return result
     else:
         return networks.summarize_transit_segments(
-            networks.tsegment_boardings_col, 
+            networks.ts_board_col, 
             crosstab_columns=networks.toperator
         )
 
