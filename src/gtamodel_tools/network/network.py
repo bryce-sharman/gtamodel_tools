@@ -686,8 +686,7 @@ class Network(object):
         output_cols = ['volume']
         if self.start_time is not None and self.end_time is not None:
             tsegs[capacity_col] = tsegs[self.tv_vcap_col] * \
-                (self.end_time - self.start_time) / \
-                    tsegs[self.tl_hdw_col]
+                (self.end_time - self.start_time) / tsegs[self.tl_hdw_col]
             output_cols.append(capacity_col)
         else:
             print('    Not computing countpost capacity as network period'
@@ -736,6 +735,8 @@ class Network(object):
                     cp_links[self.lk_tnode_col]
                 ])
                 a2links = a2links.drop(linkids_to_drop, axis=0)
+                if len(a2links) == 0:
+                    break
                 cp_links = cp.sjoin_nearest(a2links, distance_col='distance')
                 if cp_links['distance'].min() > current_dist + tol:
                     break
@@ -747,12 +748,6 @@ class Network(object):
         if capacity_col in output_cols:
             final[vcr_col] = final[volume_col] / final[capacity_col]
             output_cols.append(vcr_col)
-
-        # Check that the same link doesn't show up for multiple countposts
-        chk = final.groupby([
-            self.lk_fnode_col, self.lk_tnode_col])['volume'].count()
-        if chk.max() > 1:
-            raise RuntimeError('Links were connected to multiple countposts.')
         return final[output_cols]
 
 

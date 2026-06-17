@@ -155,10 +155,14 @@ transit_countposts:
     latitude: 43.640418
     longitude: -79.419901
     modes: ["b"]
-  link_104_105:
+  link_104_105_b:
     latitude: 43.642931
     longitude: -79.403024
     modes: ["b"]
+  link_104_105_l:
+    latitude: 43.642931
+    longitude: -79.403024
+    modes: ["l"]
   link_101_103:
     latitude: 43.648974
     longitude: -79.432543
