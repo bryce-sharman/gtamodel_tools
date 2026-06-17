@@ -105,8 +105,7 @@ def am_auto_network(test_auto_summary_config) -> Network:
     tp_def = test_auto_summary_config.time_periods['AM']
     net = Network(
         test_auto_summary_config,
-        auto_phf=tp_def['auto_phf'],
-        transit_phf=None
+        auto_phf=tp_def['auto_phf']
     )
     net.read_from_nwp(
         test_auto_summary_config.networks_subdir / 'AM_Auto.nwp'
@@ -119,8 +118,7 @@ def pm_auto_network(test_auto_summary_config) -> Network:
     tp_def = test_auto_summary_config.time_periods['PM']
     net = Network(
         test_auto_summary_config,
-        auto_phf = tp_def['auto_phf'],
-        transit_phf=None
+        auto_phf = tp_def['auto_phf']
     )
     net.read_from_nwp(
         test_auto_summary_config.networks_subdir / 'PM_Auto.nwp'

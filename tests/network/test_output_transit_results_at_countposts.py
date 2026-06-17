@@ -44,13 +44,3 @@ def test_transit_at_countposts_no_transitphf(am_transit_network, expected):
     ref_res = expected.copy()
     ref_res['vcr'] = ref_res['volume'] / ref_res['capacity']
     tm.assert_frame_equal(test_res, ref_res)
-
-
-def test_transit_at_countposts_transitphf(am_transit_network, expected):
-    net = deepcopy(am_transit_network)
-    net.transit_phf = 2.0
-    test_res = net.output_transit_results_at_countposts()
-    ref_res = expected.copy()
-    ref_res['volume_pkhr'] = ref_res['volume'] / net.transit_phf
-    ref_res['vcr'] = ref_res['volume'] / ref_res['capacity']
-    tm.assert_frame_equal(test_res, ref_res)

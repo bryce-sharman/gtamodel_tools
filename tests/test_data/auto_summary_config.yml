@@ -27,11 +27,6 @@ los_subdirectory: "LOS Matrices"
 
 # Time period definitions
 # auto_pfh must match those in the GTAModel run specifications
-# Transit peak-hour factors are only used for post-processing
-# Start and end times are in minutes after midnight
-# Start times are inclusive; end times are exclusive
-# Start and end time must be enclosed in quotes to force them to be 
-# imported as strings.
 time_period_definitions:
     AM: 
       is_assigned: True

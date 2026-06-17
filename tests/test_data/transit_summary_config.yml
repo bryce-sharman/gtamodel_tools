@@ -39,7 +39,6 @@ los_subdirectory: "LOS Matrices"
 
 # Time period definitions
 # auto_pfh must match those in the GTAModel run specifications
-# Transit peak-hour factors are only used for post-processing
 # Start and end times are are needed for transit period-level
 # analyses, and are defined in minutes after midnight.
 # Start times are inclusive; end times are exclusive
@@ -47,13 +46,11 @@ time_period_definitions:
     AM: 
       is_assigned: True
       auto_phf: 3.0
-      transit_phf: 2.0
       start_time: 360
       end_time: 540
     PM:
       is_assigned: True
       auto_phf: 2.0
-      transit_phf: 1.5
       start_time: 900
       end_time: 1140
 
@@ -74,7 +71,6 @@ automode_id: c
 link_freeflow_speed_col: ul2
 link_lane_capacity_col: ul3
 
-
 # User-defined link classifications
 # This is a dictionary, where each item is composed as follows:
 #   - key: classification label
@@ -88,7 +84,6 @@ link_classification_defs:
   connector:
     attr: vdf
     values: [2]
-
 
 # The following outlines zone ranges, based on the zone number
 # Format is a dictionary where each item is a sub-dictionary (defined as follows)  
@@ -192,13 +187,3 @@ transit_countposts:
 #   TTC_Line6: ^TS06
 #   TTC_Surface: ^T[0-9]
 #   GO: ^G    
-
-
-###############################################################################
-# Microsim configuration
-###############################################################################
-
-# Number of samples used in the trip mode choice
-# This is 100 in version v4.0, and 10 in versions v4.1 and 4.2.
-microsim_tripmode_nsamples: 100
-

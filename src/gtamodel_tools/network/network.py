@@ -52,9 +52,6 @@ class Network(object):
         auto_phf: float | None
             Auto peak-hour factor. Is None if network does not have auto 
             assignment results. Default is None.
-        transit_phf: float | None
-            Transit peak-hour factor. Is None if network does not have transit 
-            assignment results. Default is None.
 
     """
 
@@ -64,7 +61,6 @@ class Network(object):
             start_time: int|None=None, 
             end_time: int|None=None,
             auto_phf: float|None=None,
-            transit_phf: float|None=None
             ) -> None:
 
         # The following attributes are defined directly in the config file
@@ -86,7 +82,6 @@ class Network(object):
         self.start_time = start_time
         self.end_time = end_time
         self.auto_phf = auto_phf
-        self.transit_phf = transit_phf
 
         self.geometry_col = 'geometry'
 
@@ -636,12 +631,7 @@ class Network(object):
 #endregion
 
 
-#region Auto validation
-
-
-
 #region Transit
-
     def output_transit_results_at_countposts(
             self, max_distance: float=100.0, tol: float=0.1) -> pd.DataFrame:
         """ 
@@ -702,11 +692,6 @@ class Network(object):
         else:
             print('    Not computing countpost capacity as network period'
             'start and end times are not defined.')
-        if self.transit_phf is not None:
-            tsegs['volume_pkhr'] = tsegs['volume'] / self.transit_phf
-            output_cols.append('volume_pkhr')
-
-
 
         # Find closest links
         #   As it is possible for multiple links to have the same distance
@@ -716,10 +701,6 @@ class Network(object):
         #   removing matched links until distance threshold is exceeded.
         cp_links_l = []
         for cp_id, row in countposts.iterrows():
-            print()
-            print(cp_id)
-            print(row)
-
             # Get a fresh list of the links with modes used in countpost
             ts_tmp = tsegs.loc[tsegs[self.tl_mode_col].isin(row['modes'])]
 
