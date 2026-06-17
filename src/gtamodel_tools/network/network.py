@@ -29,6 +29,7 @@ from gtamodel_tools.network.read_emme_network import read_nwp_base_network, \
     read_nwp_traffic_results, read_nwp_transit_vehicles, \
     read_nwp_transit_network, read_nwp_transit_line_attributes, \
     read_nwp_transit_segment_results
+from gtamodel_tools.enums.common import GPD_GEOM_COL
 
 idx = pd.IndexSlice
 
@@ -70,10 +71,10 @@ class Network(object):
         self.network_crs = config.network_crs
         self.grid_offset = config.grid_offset
         self.automode_id = config.automode_id
-        self.link_freeflow_speed_col = config.link_freeflow_speed_col
-        self.link_lane_capacity_col = config.link_lane_capacity_col
+        self.lk_ffspeed_col = config.link_freeflow_speed_col
+        self.lk_lanecap_col = config.link_lane_capacity_col
         self.time_periods = config.time_periods
-        self.link_classification_defs = config.link_classification_defs
+        self.link_cldefs = config.link_classification_defs
         self.zone_range_defs = config.zone_ranges
         self.node_range_defs = config.node_ranges
         self.transit_operator_regexprs = config.transit_operator_regexprs
@@ -150,13 +151,15 @@ class Network(object):
             raise RuntimeError(
                 "Automode ID must be defined in config to read network."
             )
-        if self.link_freeflow_speed_col is None:
+        if self.lk_ffspeed_col is None:
             raise RuntimeError(
-                "Link freeflow speed column must be defined in config to read network."
+                "Link freeflow speed column must be defined in config "
+                "to read network."
             )
-        if self.link_lane_capacity_col is None:
+        if self.lk_lanecap_col is None:
             raise RuntimeError(
-                "Link lane capacity column must be defined in config to read network."
+                "Link lane capacity column must be defined in config to "
+                "read network."
             )
 
         linkcols_rename = {'data1': 'ul1', 'data2': 'ul2', 'data3': 'ul3'}
@@ -216,46 +219,46 @@ class Network(object):
 
 
         # Set Emme-specific column names
-        self.nodeid_col = 'node'
-        self.node_is_centroid_col = 'is_centroid'
-        self.link_fromnode_col = 'inode'
-        self.link_tonode_col = 'jnode'
-        self.link_length_col = 'length'
-        self.link_allowed_modes_col = 'modes'
-        self.link_numlanes_col = 'lanes'
-        self.link_auto_capacity_col = 'auto_capacity'
-        self.links[self.link_auto_capacity_col] = \
-            self.links[self.link_numlanes_col] \
-                * self.links[self.link_lane_capacity_col]
-        self.link_auto_volume_col = 'auto_volume'
-        self.link_additional_volume_col = 'additional_volume'
-        self.link_total_volume_col = 'traffic_volume'
-        self.link_auto_travel_time_col = 'auto_time'
+        self.ndid_col = 'node'
+        self.nd_iscentroid_col = 'is_centroid'
+        self.lk_fnode_col = 'inode'
+        self.lk_tnode_col = 'jnode'
+        self.lk_len_col = 'length'
+        self.lk_modes_col = 'modes'
+        self.lk_nlanes_col = 'lanes'
+        self.lk_autocap_col = 'auto_capacity'
+        self.links[self.lk_autocap_col] = \
+            self.links[self.lk_nlanes_col] \
+                * self.links[self.lk_lanecap_col]
+        self.lk_autovol_col = 'auto_volume'
+        self.lk_addvolume_col = 'additional_volume'
+        self.lk_totvol_col = 'traffic_volume'
+        self.lk_autottime_col = 'auto_time'
         self.traffic_results_cols = \
             ['auto_volume', 'additional_volume', 'auto_time']
 
         # Transit columns
         self.toperator = "operator"
-        self.tvehs_veh_col = 'veh'
-        self.tline_mode_col = 'mode'
-        self.tline_line_col = 'line'
-        self.tseg_loop_col = 'loop'
-        self.tline_headway_col = 'headway'
-        self.tsegment_boardings_col = 'boardings'
-        self.tsegment_alightings_col = 'alightings'
-        self.tsegments_volume_col = 'volume'
+        self.tv_veh_col = 'veh'
+        self.tl_mode_col = 'mode'
+        self.tl_line_col = 'line'
+        self.ts_loop_col = 'loop'
+        self.tl_hdw_col = 'headway'
+        self.ts_board_col = 'boardings'
+        self.ts_alight_col = 'alightings'
+        self.ts_vol_col = 'volume'
         self.transit_results_cols  = ['boardings', 'alightings', 'volume']
-        self.tveh_totalcapacity_col = 'total_capacity'
+        self.tv_vcap_col = 'total_capacity'
 
         if self.has_traffic_results:
-            self.links[self.link_total_volume_col] = \
-                self.links[self.link_auto_volume_col] \
-                    + self.links[self.link_additional_volume_col]
+            self.links[self.lk_totvol_col] = \
+                self.links[self.lk_autovol_col] \
+                    + self.links[self.lk_addvolume_col]
 
         # These are used when collapsing a transit hypernetwork
         self.base_node_col = 'base_node'
-        self.base_fromnode_col = 'base_fromnode'
-        self.base_tonode_col = 'base_tonode'
+        self.base_fnode_col = 'base_fromnode'
+        self.base_tnode_col = 'base_tonode'
         print('  Applying link classifications.')
         self.apply_link_classification()
         print('  Calculating link cartesian directions.')
@@ -275,7 +278,7 @@ class Network(object):
             self.zone_ranges = create_spatial_aggregator(
                 'custom_ranges', 
                 ranges=zone_ranges,
-                ids=self.nodes.loc[self.nodes[self.node_is_centroid_col]].index,
+                ids=self.nodes.loc[self.nodes[self.nd_iscentroid_col]].index,
                 name='zone_ranges'
             )
 
@@ -297,9 +300,9 @@ class Network(object):
         Add link classification column, as defined in network coding standard
         to links table. 
         """
-        if self.link_classification_defs is not None:
+        if self.link_cldefs is not None:
             self.links[self.linkclass] = ''
-            for k, v in self.link_classification_defs.items():
+            for k, v in self.link_cldefs.items():
                 fltr = self.links[v['attr']].isin(v['values'])
                 self.links.loc[fltr, self.linkclass] = k  
 
@@ -339,9 +342,10 @@ class Network(object):
         centroids = self.nodes.loc[self.nodes['is_centroid']].index
         links = self.links.copy().reset_index()
         links = links.loc[
-            ~links['inode'].isin(centroids) & ~links['jnode'].isin(centroids)
+            ~links[self.lk_fnode_col].isin(centroids) & 
+            ~links[self.lk_tnode_col].isin(centroids)
         ]
-        return links.set_index(['inode', 'jnode'])
+        return links.set_index([self.lk_fnode_col, self.lk_tnode_col])
 
 #region Auto traffic summary methods
     def summarize_link_attributes(
@@ -383,9 +387,9 @@ class Network(object):
 
         # Lookup the expression
         if summary == 'length':
-            expression = self.link_length_col
+            expression = self.lk_len_col
         elif summary == 'lane_length':
-            expression = f'{self.link_length_col} * {self.link_numlanes_col}'
+            expression = self.lane_length_expr
         elif summary == 'vkt':
             expression = self.traffic_vkt_expr
         elif summary == 'vht':
@@ -414,12 +418,12 @@ class Network(object):
         # and/or node aggregation.
         if node_aggregation is not None:
             if aggregate_on_node == None:
-                aggregate_on_node = self.link_fromnode_col
+                aggregate_on_node = self.lk_fnode_col
             elif aggregate_on_node not in [
-                    self.link_fromnode_col, self.link_tonode_col]:
+                    self.lk_fnode_col, self.lk_tnode_col]:
                 raise ValueError(
                     f"Invalid parameter 'aggregate_on_node'. Must be either "
-                    f"{self.link_fromnode_col} or {self.link_tonode_col}")
+                    f"{self.lk_fnode_col} or {self.lk_tnode_col}")
             aggr_colname = node_aggregation.name
             crosstab_columns = [aggr_colname]
         else:
@@ -494,20 +498,20 @@ class Network(object):
 
         # Filter out the connectors and non-auto links
         links = self.filter_link_connectors()
-        fltr = links[self.link_allowed_modes_col].str.contains(self.automode_id)
+        fltr = links[self.lk_modes_col].str.contains(self.automode_id)
         links = gpd.GeoDataFrame(links.loc[fltr])  # keep typehinting happy
 
         summary_columns = ['n_links', 'n_lanes', 'capacity']
         aggr_dict = {
-            self.link_numlanes_col: ['count', 'sum'],       
-            self.link_auto_capacity_col: 'sum',
+            self.lk_nlanes_col: ['count', 'sum'],       
+            self.lk_autocap_col: 'sum',
         }
         if self.has_traffic_results:
             summary_columns.extend([
                 'auto_vol', 'additional_vol', 'traffic_vol'])
-            aggr_dict[self.link_auto_volume_col] = 'sum'
-            aggr_dict[self.link_additional_volume_col] = 'sum'
-            aggr_dict[self.link_total_volume_col] = 'sum'
+            aggr_dict[self.lk_autovol_col] = 'sum'
+            aggr_dict[self.lk_addvolume_col] = 'sum'
+            aggr_dict[self.lk_totvol_col] = 'sum'
 
         # Because links can be defined in multiple screenlines, links are
         # matched one-by-one to each screenline. The final step is to concat
@@ -573,7 +577,7 @@ class Network(object):
 
         # Filter out connectors and non-auto links
         links = self.filter_link_connectors()
-        auto_filter = links[self.link_allowed_modes_col].str.contains(
+        auto_filter = links[self.lk_modes_col].str.contains(
             self.automode_id)
         links = links.loc[auto_filter]
 
@@ -600,14 +604,14 @@ class Network(object):
             while True:
                 # Drop the matched links from the links GeoDataFrame
                 linkids_to_drop = list(
-                    cp_links[['inode', 'jnode']].itertuples(
-                        index=False, name=None)
+                    cp_links[
+                        [self.lk_fnode_col, self.lk_tnode_col]
+                    ].itertuples(index=False, name=None)
                 )
                 links = links.drop(linkids_to_drop, axis=0)
                 cp_links = cp.sjoin_nearest(links, distance_col='distance')
                 if cp_links['distance'].min() > current_dist + tol:
                     break
-                current_dist = cp_links['distance'].min()
                 cp_links_l.append(cp_links)
         cp_links = pd.concat(cp_links_l, axis=0)
 
@@ -616,16 +620,17 @@ class Network(object):
         cp_links = cp_links.set_index([countposts_col, self.link_dir_col])
         cp_links.to_clipboard()
         # Check that the same link doesn't show up for multiple countposts
-        chk = cp_links.groupby(['inode', 'jnode'])['length'].count()
+        chk = cp_links.groupby([
+            self.lk_fnode_col, self.lk_tnode_col])['length'].count()
         if chk.max() > 1:
             raise RuntimeError('Links were connected to multiple countposts.')
         cp_links = cp_links[[
-            self.link_auto_volume_col, 
-            self.link_additional_volume_col, 
-            self.link_total_volume_col, 
-            self.link_auto_capacity_col]]
-        cp_links['vcr'] = cp_links[self.link_total_volume_col].divide(
-            cp_links[self.link_auto_capacity_col])
+            self.lk_autovol_col, 
+            self.lk_addvolume_col, 
+            self.lk_totvol_col, 
+            self.lk_autocap_col]]
+        cp_links['vcr'] = cp_links[self.lk_totvol_col].divide(
+            cp_links[self.lk_autocap_col])
         return cp_links
 
 #endregion
@@ -637,21 +642,31 @@ class Network(object):
 
 #region Transit
 
-    def output_transit_results_at_countposts(self) -> pd.DataFrame:
+    def output_transit_results_at_countposts(
+            self, max_distance: float=100.0, tol: float=0.1) -> pd.DataFrame:
         """ 
         Outputs transit volumes and capacities at countposts,
-        which are defined in the configuration file.
+        which are defined in the configuration file. Summaries
+        are always output for the transit period.
+
+        Args:
+            max_distance: maximum search distance in metres
+                Default is 100 metres.
+            tol: threshold at which to match additional links to a countpost
+                in metres. Default is 0.1 metres.
 
         Returns:
             pandas DataFrame:
                 - MultiIndex is the countpost description and direction
                 - Values are:
-                    'volume': transit volume on all routes using the link
-                    'capacity': total capacity of all routes using the link
-                    'vcr': V/C ratio.
-            """
-        COUNTPOSTS_BUFFER = 100.0
-        volume_col = self.tsegments_volume_col
+                    - 'volume': transit volume on all routes using the link
+                    if the network start_time and end_time are set, will also
+                    compute:
+                    - 'capacity': total capacity of all routes using the link
+                    - 'vcr': V/C ratio.
+
+        """    
+        volume_col = self.ts_vol_col
         capacity_col = 'capacity'
         countposts_col = 'countpost'
         vcr_col = 'vcr'
@@ -662,69 +677,102 @@ class Network(object):
         countposts = self.transit_countposts
         if countposts is None:
             raise RuntimeError(
-                "No traffic countposts defined in the configuration file.")
+                "No transit countposts defined in the configuration file.")
         countposts = countposts.to_crs(self.network_crs)  
 
-        # Merge in vehicle capacities
+        # Merge in mode, headway and vehicle capacities
         tsegs = self.tsegments.reset_index()
         tsegs = tsegs.merge(
-            self.tlines[[self.tline_mode_col, self.tvehs_veh_col, self.tline_headway_col]], 
-            left_on=self.tline_line_col, 
+            self.tlines[[self.tl_mode_col, self.tv_veh_col, self.tl_hdw_col]], 
+            left_on=self.tl_line_col, 
             right_index=True
         )
         tsegs = tsegs.merge(
-            self.tvehicles[[self.tveh_totalcapacity_col]], 
-            left_on=self.tvehs_veh_col, 
+            self.tvehicles[[self.tv_vcap_col]], 
+            left_on=self.tv_veh_col, 
             right_index=True
         )
-        if self.transit_phf is None:
-            raise RuntimeError(
-                "Transit peak-hour factor (transit_phf) must be defined "
-                "for an assigned network.")
-        tsegs[capacity_col] = tsegs[self.tveh_totalcapacity_col] * \
-            self.transit_phf * 60.0 / tsegs[self.tline_headway_col]
 
-        countposts_buffer = gpd.GeoDataFrame(
-            index=countposts.index,
-            geometry=countposts.buffer(COUNTPOSTS_BUFFER),
-            data=countposts['modes'],
-            crs = countposts.crs
-        )
+        output_cols = ['volume']
+        if self.start_time is not None and self.end_time is not None:
+            tsegs[capacity_col] = tsegs[self.tv_vcap_col] * \
+                (self.end_time - self.start_time) / \
+                    tsegs[self.tl_hdw_col]
+            output_cols.append(capacity_col)
+        else:
+            print('    Not computing countpost capacity as network period'
+            'start and end times are not defined.')
+        if self.transit_phf is not None:
+            tsegs['volume_pkhr'] = tsegs['volume'] / self.transit_phf
+            output_cols.append('volume_pkhr')
 
-        f_list = []
-        # Go through the countposts one-by-one as we are allowing a mode filter
-        # for each countpost.
-        for cpb in countposts_buffer.iterfeatures():
-            cpb_id = cpb['id']
-            cpb_modes = cpb['properties']['modes']
-            cpb_geom = cpb['geometry']['coordinates'][0]
-            tsegs_tmp = tsegs.loc[tsegs[self.tline_mode_col].isin(cpb_modes)]
-            ptsegs = tsegs_tmp.groupby(
-                [self.link_fromnode_col, self.link_tonode_col])[[
-                    volume_col, capacity_col]].sum()
-            # merge in the volumes and capacities to the link geometries
-            links = self.links.merge(ptsegs, left_index=True, right_index=True)
-            links = links[[self.link_dir_col, volume_col, 
-                          capacity_col, self.geometry_col]]
-            # once again, convert to GeoDataFrame
-            cpb = gpd.GeoDataFrame(
-                index=[cpb_id],
-                geometry=[Polygon(cpb_geom)],
-                data=[cpb_modes],
-                crs = countposts.crs
+
+
+        # Find closest links
+        #   As it is possible for multiple links to have the same distance
+        #   (e.g. reverse links)  but testing has found cases where all links 
+        #   are not picked up sjoin_nearest. Hence I will do this by looping
+        #   through each countpost, and for each countpost iteratively
+        #   removing matched links until distance threshold is exceeded.
+        cp_links_l = []
+        for cp_id, row in countposts.iterrows():
+            print()
+            print(cp_id)
+            print(row)
+
+            # Get a fresh list of the links with modes used in countpost
+            ts_tmp = tsegs.loc[tsegs[self.tl_mode_col].isin(row['modes'])]
+
+            # Aggregate transit segments up to links, then we can use the
+            # same approach as output_traffic_results_at_countposts
+            a2links = ts_tmp.groupby(
+                [self.lk_fnode_col, self.lk_tnode_col])[output_cols].sum()
+            # Merge in the link geometry
+            a2links = a2links.merge(
+                self.links[[self.link_dir_col, GPD_GEOM_COL]], 
+                left_index=True, 
+                right_index=True
             )
-            cp_links = links.sjoin(cpb)
-            idxmax = cp_links.groupby('link_dir')[volume_col].idxmax()
-            for l in idxmax:
-                # two square brackets to make a DataFrame
-                f_list.append(cp_links.loc[[l]])   
+            a2links = gpd.GeoDataFrame(
+                index=a2links.index,
+                data=a2links[[self.link_dir_col] + output_cols],
+                geometry=a2links[GPD_GEOM_COL],
+                crs=self.network_crs
+            )
+            
+            # Find the closest links (that are in the previously defined
+            # links list) to the countpost
+            cp = countposts.loc[[cp_id]]
+            cp_links = cp.sjoin_nearest(a2links, distance_col='distance')
+            current_dist = cp_links['distance'].min()
+            if current_dist > max_distance:
+                continue
+            cp_links_l.append(cp_links)
+            while True:
+                # Drop the matched links from the links GeoDataFrame
+                linkids_to_drop = pd.MultiIndex.from_arrays([
+                    cp_links[self.lk_fnode_col], 
+                    cp_links[self.lk_tnode_col]
+                ])
+                a2links = a2links.drop(linkids_to_drop, axis=0)
+                cp_links = cp.sjoin_nearest(a2links, distance_col='distance')
+                if cp_links['distance'].min() > current_dist + tol:
+                    break
+                cp_links_l.append(cp_links)
+        final = pd.concat(cp_links_l, axis=0)
+        final.index.name = countposts_col
+        final = final.reset_index()
+        final = final.set_index([countposts_col, self.link_dir_col])
+        if capacity_col in output_cols:
+            final[vcr_col] = final[volume_col] / final[capacity_col]
+            output_cols.append(vcr_col)
 
-
-        final = pd.concat(f_list, axis=0)
-        final[vcr_col] = final[volume_col] / final[capacity_col]
-        final = final.set_index(['index_right', self.link_dir_col])  
-        final.index.names = [countposts_col, self.link_dir_col]
-        return final[[volume_col, capacity_col, vcr_col]]
+        # Check that the same link doesn't show up for multiple countposts
+        chk = final.groupby([
+            self.lk_fnode_col, self.lk_tnode_col])['volume'].count()
+        if chk.max() > 1:
+            raise RuntimeError('Links were connected to multiple countposts.')
+        return final[output_cols]
 
 
     def calculate_line_profiles(
@@ -873,24 +921,24 @@ class Network(object):
         fromnode = last_tseg.name[2]  # j-node of last node
         tonode = 0                    # hidden node is always 0
         loop = last_tseg.name[3]      
-        alightings = last_tseg[self.tsegments_volume_col]  # everyone gets off
+        alightings = last_tseg[self.ts_vol_col]  # everyone gets off
         # Add a row to the end, pandas will do this through a loc 
         # if the row does not exist in the index
         tsegs.loc[tline_id, fromnode, tonode, loop] = [0, 0, 0]
         tsegs.at[(tline_id, fromnode, tonode, loop), 
-                 self.tsegment_alightings_col] = alightings
+                 self.ts_alightings_col] = alightings
 
         # Drop the line and to_node columns out of the index
         tsegs = tsegs.reset_index(
-            [self.tline_line_col, self.link_tonode_col], drop=True)
+            [self.tl_line_col, self.lk_tnode_col], drop=True)
         return tsegs
 
 
     def remove_unused_loops(self, line_profile: pd.DataFrame) -> pd.DataFrame:
         """ Remove the loop column if the line is not looped. """
-        tseg_loop = line_profile.index.get_level_values(self.tseg_loop_col)
+        tseg_loop = line_profile.index.get_level_values(self.ts_loop_col)
         if tseg_loop.nunique() == 1:
-            return line_profile.droplevel(self.tseg_loop_col, axis=0)
+            return line_profile.droplevel(self.ts_loop_col, axis=0)
         else:
             return line_profile
 
@@ -904,7 +952,7 @@ class Network(object):
             return line_profile
         line_profile = line_profile.copy()
         node_ids = pd.Series(
-            line_profile.index.get_level_values(self.link_fromnode_col))
+            line_profile.index.get_level_values(self.lk_fnode_col))
         stns = node_ids.map(stn_labels)
         isna = pd.isna(stns)
         stns.loc[isna] = node_ids.loc[isna]    
@@ -913,13 +961,13 @@ class Network(object):
             line_profile.index.name = self.station_name_col
         else:
             index_cols = line_profile.index.names.copy()
-            index_cols.remove(self.link_fromnode_col)
+            index_cols.remove(self.lk_fnode_col)
             index_cols = [self.station_name_col] + index_cols
             line_profile = line_profile.reset_index()
             line_profile[self.station_name_col] = stns
             line_profile = line_profile.set_index(index_cols)
             line_profile.index.names = index_cols
-            line_profile = line_profile.drop(self.link_fromnode_col, axis=1)
+            line_profile = line_profile.drop(self.lk_fnode_col, axis=1)
         return line_profile 
 
 
@@ -1007,16 +1055,16 @@ class Network(object):
         if reqs_links_columns:
             tsegs = tsegs.merge(
                 self.links, 
-                left_on=[self.link_fromnode_col, self.link_tonode_col], 
+                left_on=[self.lk_fnode_col, self.lk_tnode_col], 
                 right_index=True
             )
         if reqs_tlines_columns or reqs_tvehs_columns:
             tsegs = tsegs.merge(
-                self.tlines, left_on=[self.tline_line_col], 
+                self.tlines, left_on=[self.tl_line_col], 
                 right_index=True, suffixes=['', '_l'])
             if reqs_tvehs_columns:
                 tsegs = tsegs.merge(
-                    self.tvehicles, left_on=[self.tvehs_veh_col], 
+                    self.tvehicles, left_on=[self.tv_veh_col], 
                     right_index=True, suffixes=['', '_v'])
                 
         # Apply filter if defined
@@ -1042,7 +1090,10 @@ class Network(object):
                 node_aggregation.mapping, how="inner", 
                 left_index=True, right_index=True)
             tsegs = tsegs.merge(
-                nodes[[aggr_colname]], left_on='inode', right_index=True)
+                nodes[[aggr_colname]], 
+                left_on=self.lk_fnode_col, 
+                right_index=True
+            )
             if crosstab_columns is None:
                 aggregation_columns = [aggr_colname]
             elif isinstance(crosstab_columns, str):
@@ -1059,16 +1110,17 @@ class Network(object):
         links = links.merge(
             self.nodes[['x', 'y']], 
             how='left', 
-            left_on='inode', 
+            left_on=self.lk_fnode_col, 
             right_index=True)
         links = links.merge(
             self.nodes[['x', 'y']], 
             how='left', 
-            left_on='jnode', 
+            left_on=self.lk_tnode_col, 
             right_index=True, 
             suffixes=['_i', '_j']
         )
-        n_links = links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])['inode'].count()
+        n_links = links.groupby(['x_i', 'y_i', 'x_j', 'y_j'])[
+            self.lk_fnode_col].count()
         n_links.name = 'n_links'
         if n_links.max() > 1:
             return True
@@ -1138,11 +1190,11 @@ class Network(object):
             we can leave unchanged.
         
         """
-        fromnode_col = self.link_fromnode_col
-        tonode_col = self.link_tonode_col
-        base_fromnode_col = self.base_fromnode_col
-        base_tonode_col = self.base_tonode_col
-        nodeid_col = self.nodeid_col
+        fromnode_col = self.lk_fnode_col
+        tonode_col = self.lk_tnode_col
+        base_fromnode_col = self.base_fnode_col
+        base_tonode_col = self.base_tnode_col
+        nodeid_col = self.ndid_col
         base_node_col = self.base_node_col
 
 
@@ -1197,15 +1249,15 @@ class Network(object):
             agg_rules['nodes'], self.nodes.columns, [])
         agg_rules['links'] = self._add_default_aggr_dict_cols(
             agg_rules['links'], self.links.columns, [
-                self.link_auto_volume_col, self.link_additional_volume_col])
+                self.lk_autovol_col, self.lk_addvolume_col])
         return agg_rules
 
     def _collapse_links(
             self, links: pd.DataFrame, agrls: dict) -> pd.DataFrame:
         """ Produces collapsed link table.  """
-        fltr = links[self.base_fromnode_col] != links[self.base_tonode_col]
+        fltr = links[self.base_fnode_col] != links[self.base_tnode_col]
         links2 = links.loc[fltr].groupby(
-            [self.base_fromnode_col, self.base_tonode_col]).aggregate(agrls)
+            [self.base_fnode_col, self.base_tnode_col]).aggregate(agrls)
         links2.index.names = self.links.index.names
         return gpd.GeoDataFrame(
             links2, geometry=self.geometry_col, crs=self.network_crs)
@@ -1214,7 +1266,7 @@ class Network(object):
             self, node_mappings: pd.Series, agrls: dict) -> pd.DataFrame:
         """ Produces collapsed node table. """
         nodes = self.nodes.reset_index()
-        nodes['new_node'] = nodes[self.nodeid_col].map(node_mappings)
+        nodes['new_node'] = nodes[self.ndid_col].map(node_mappings)
         nodes2 = nodes.groupby('new_node').aggregate(agrls)
         nodes2.index.name = self.nodes.index.name
         return gpd.GeoDataFrame(
@@ -1228,10 +1280,10 @@ class Network(object):
         
         """
         tsegments = self.tsegments.reset_index()
-        tsegments[self.link_fromnode_col] = \
-            tsegments[self.link_fromnode_col].map(node_mappings)
-        tsegments[self.link_tonode_col] = \
-            tsegments[self.link_tonode_col].map(node_mappings)
+        tsegments[self.lk_fnode_col] = \
+            tsegments[self.lk_fnode_col].map(node_mappings)
+        tsegments[self.lk_tnode_col] = \
+            tsegments[self.lk_tnode_col].map(node_mappings)
         tsegments = tsegments.set_index(self.tsegments.index.names)
         return tsegments
 
@@ -1249,11 +1301,11 @@ class Network(object):
         # for all non-hyper-network links.
 
         # Merge x and y coordinates to all links in the network
-        fromnode_col = self.link_fromnode_col
-        tonode_col = self.link_tonode_col
-        base_fromnode_col = self.base_fromnode_col
-        base_tonode_col = self.base_tonode_col
-        nodeid_col = self.nodeid_col
+        fromnode_col = self.lk_fnode_col
+        tonode_col = self.lk_tnode_col
+        base_fromnode_col = self.base_fnode_col
+        base_tonode_col = self.base_tnode_col
+        nodeid_col = self.ndid_col
 
         links = self.links.reset_index()   
         n_links_before_merge = len(links)
@@ -1354,16 +1406,20 @@ class Network(object):
 #region properties
 
     @property
+    def lane_length_expr(self) -> str:
+        return f'{self.lk_len_col} * {self.lk_nlanes_col}'
+
+    @property
     def traffic_vkt_expr(self) -> str:
-        return f'{self.link_length_col} * {self.link_total_volume_col}'
+        return f'{self.lk_len_col} * {self.lk_totvol_col}'
 
     @property
     def traffic_vht_expr(self) -> str:
-        return f'{self.link_auto_travel_time_col} * {self.link_total_volume_col} / 60.0'
+        return f'{self.lk_autottime_col} * {self.lk_totvol_col} / 60.0'
 
     @property
     def vcr_extr(self) -> str:
-        return f'{self.link_total_volume_col} / {self.link_auto_capacity_col}'
+        return f'{self.lk_totvol_col} / {self.lk_autocap_col}'
 
     @property
     def transit_vkt_expr(self) -> str:
@@ -1372,27 +1428,27 @@ class Network(object):
                 'Network period start and end times must be defined to '
                 'calculated transit VKT.'
                 )
-        return f'{self.link_length_col} * ' \
+        return f'{self.lk_len_col} * ' \
                f'({self.end_time} - {self.start_time}) / ' \
-               f'{self.tline_headway_col}'
+               f'{self.tl_hdw_col}'
 
     @property
     def transit_vht_expr(self) -> str:
         raise NotImplementedError(
-            'Cannot calculate transit VHT as transit travel time not currently ' \
-            'exported by TMG export_network_package tool.'
+            'Cannot calculate transit VHT as transit travel time not ' \
+            'currently exported by TMG export_network_package tool.'
         )
 
     @property
     def transit_pkt_expr(self) -> str:
         # Volumes are already peak-period
-        return f'{self.link_length_col} * {self.tsegments_volume_col}'
+        return f'{self.lk_len_col} * {self.ts_vol_col}'
 
     @property
     def transit_pht_expr(self) -> str:
         raise NotImplementedError(
-            'Cannot calculate transit PHT as transit travel time not currently ' \
-            'exported by TMG export_network_package tool.'
+            'Cannot calculate transit PHT as transit travel time not ' \
+            'currently exported by TMG export_network_package tool.'
         )
 
     @property

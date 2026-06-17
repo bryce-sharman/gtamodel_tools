@@ -56,9 +56,9 @@ def _basic_links_tests(net, required_cols):
     required_link_colnames = pd.Index(required_cols)
     assert required_link_colnames.isin(net.links.columns).all()
     assert net.links['link_dir'].isin(['NB', 'SB', 'EB', 'WB']).all()
-    if net.link_classification_defs is not None:
+    if net.link_cldefs is not None:
         assert net.links['link_class'].isin(
-            net.link_classification_defs.keys()).all()
+            net.link_cldefs.keys()).all()
 
 def _basic_transit_tests(
         net, 
