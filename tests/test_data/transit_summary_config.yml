@@ -121,23 +121,18 @@ transit_operator_regexprs:
 # will sum the results for all lines. One note, multiple lines
 # can currently only be included if one line is a subset of the 
 # other (e.g. short turn). Branched routes are currently not implemented.
-# line_profile_definitions:
-#   Line 1:
-#     HighTech_to_Vaughan: TS01Aa
-#     Vaughan_to_HighTech: TS01Bb
-#     HighTech_to_Glencairn: TS01Ca
-#     Glencairn_to_HighTech: TS01Db
-#   Line 2:
-#     STC_to_Kipling: TS02Ab
-#     Kipling_to_STC: TS02Ba
-#     Kennedy_to_Kipling: TS02Db
-#     Kipling_to_Kennedy: TS02Ha
-#   Line 3:
-#     NB: TS35Aa
-#     SB: TS35Bb
-#   Line 4:
-#     EB: TS04Aa
-#     WB: TS04Bb
+line_profile_definitions:
+  Red:
+    Red_EB: Red
+    Red_WB: Red_rev
+  BlueCyan:
+    Blue_EB: Blue
+    Blue_WB: Blue_rev
+    Cyan_EB: Cyan
+    Cyan_WB: Cyan_rev
+  Black:
+    Black_EB: TS35Aa
+    Black_WB: TS35Bb
 
 
 # Station name file path.

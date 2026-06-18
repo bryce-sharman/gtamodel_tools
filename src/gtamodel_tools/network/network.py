@@ -963,7 +963,7 @@ class Network(object):
         return line_profile
 
 
-    def calc_line_profile_1line(self, tline_id) -> pd.DataFrame:
+    def calc_line_profile_1line(self, tline_id) -> pd.DataFrame | None:
         """ 
         Helper function to get the boardings, alightings and volume along 
         the line. 
@@ -988,15 +988,17 @@ class Network(object):
         
         # add the hidden segment
         last_tseg = tsegs.iloc[-1]
-        fromnode = last_tseg.name[2]  # j-node of last node
+        # tsegs.name ['line', 'inode', 'jnode', 'loop']
+        fromnode = last_tseg.name[2]  # jnode
         tonode = 0                    # hidden node is always 0
-        loop = last_tseg.name[3]      
+        loop = last_tseg.name[3]      # loop   
         alightings = last_tseg[self.ts_vol_col]  # everyone gets off
         # Add a row to the end, pandas will do this through a loc 
         # if the row does not exist in the index
+
         tsegs.loc[tline_id, fromnode, tonode, loop] = [0, 0, 0]
         tsegs.at[(tline_id, fromnode, tonode, loop), 
-                 self.ts_alightings_col] = alightings
+                 self.ts_alight_col] = alightings
 
         # Drop the line and to_node columns out of the index
         tsegs = tsegs.reset_index(
