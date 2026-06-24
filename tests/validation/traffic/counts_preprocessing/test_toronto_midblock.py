@@ -1,5 +1,6 @@
 """ Tests for validation.preprocess_traffic_counts.toronto_midblock_counts. """
 
+from datetime import date
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -13,7 +14,11 @@ from gtamodel_tools.validation.preprocess_traffic_counts.toronto_midblock_counts
     import read_midblock_counts, read_midblock_volume_counts, \
         read_midblock_speedvolume_counts, read_midblock_classvolume_counts
 
+from gtamodel_tools.enums.common import TIME_PERIODS as TPS
+
 idx = pd.IndexSlice
+
+nan = np.nan
 
 
 @pytest.fixture
@@ -25,6 +30,40 @@ def tcl_midblock_path(testdata_path) -> Path:
 def tcl_midblock(tcl_midblock_path) -> gpd.GeoDataFrame:
     fp = tcl_midblock_path / 'tcl_trimmed_testmidblock_counts.gpkg'
     return gis_tcl.read_tcl(fp, include_direction_fields=True)
+
+
+@pytest.fixture
+def ref_cnts_stn_1143576() -> pd.DataFrame:
+
+    # This dataset has been manually verified from the counts file
+    mi = pd.MultiIndex.from_product(
+        [
+            ['TMBK'],
+            ['1143576'],
+            ['WB'],
+            [date(2019,9,30), date(2019,10,1), date(2019,10,2), date(2019,10,3),
+             date(2019,10,4), date(2019,10,5), date(2019,10,6)]
+        ],
+        names=['source', 'station_id', 'direction', 'date']
+    )
+    return pd.DataFrame(
+        index=mi,
+        columns=[
+            'vtot_amper', 'vtot_ampkhr', 'vtot_mdper', 'vtot_mdpkhr', 
+            'vtot_pmper', 'vtot_pmpkhr', 'vtot_evper', 'vtot_evpkhr', 
+            'vtot_onper', 'vtot_onpkhr', 'vtot_weekday', 'vtot_weekend'
+        ],
+        data=[
+            [674, 319, 2301, 440, 2228, 632, 1729, 447, 659, 182, 7591, nan],
+            [647, 314, 2302, 476, 2277, 672, 1756, 409, 636, 194, 7618, nan],
+            [701, 323, 2194, 445, 2183, 635, 1899, 453, 621, 160, 7598, nan],
+            [700, 308, 2354, 484, 2391, 710, 1791, 421, 737, 212, 7973, nan],
+            [674, 305, 2369, 453, 2225, 680, 2098, 480, 846, 206, 8212, nan],
+            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan, 10110],
+            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan,  9226],
+        ],
+        dtype=np.float32
+    )
 
 
 def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
@@ -47,14 +86,21 @@ def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
     else:
         assert stn['geometry'] == ls.reverse()
 
-def test_toronto_midblock_volume_only_1cnt(tcl_midblock_path, tcl_midblock):
+
+def test_toronto_midblock_volume_only_1cnt(
+        tcl_midblock_path, tcl_midblock, ref_cnts_stn_1143576):
     fp = tcl_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
     ref_df = pd.read_csv(fp)
     stns, cnts = read_midblock_volume_counts(fp, tcl_midblock)
     stn_id = 1143576
 
     check_midblock_1station(stns, ref_df, tcl_midblock, stn_id)
-    print("Need to add verification of count data.")
+    # Limit test test to one station and totals-only columns
+    cnts = pd.DataFrame(
+        cnts.loc[idx[:, str(stn_id), :, :], ref_cnts_stn_1143576.columns]
+    )
+    tm.assert_frame_equal(cnts, ref_cnts_stn_1143576)
+
 
 def test_toronto_midblock_volume_only(tcl_midblock_path, tcl_midblock):
     fp = tcl_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
