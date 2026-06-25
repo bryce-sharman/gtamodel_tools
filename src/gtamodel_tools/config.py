@@ -15,54 +15,61 @@ class Config(object):
     Also performs basic input validation such as testing such as file existence.
 
     Parameters:
-        model_outputs_dir: PathLike
         config_fp: PathLike
             Path to configuration file
-
+        model_outputs_dir: 
+            Optional path to model outputs root directory. Default is None.
     """
 
     def __init__(
             self, 
-            model_outputs_dir: PathLike, 
-            config_fp: PathLike
+            config_fp: PathLike,
+            model_outputs_dir: PathLike|None=None, 
         ) -> None:
-        self.model_outputs_dir = Path(model_outputs_dir)
-        if not self.model_outputs_dir.is_dir():
-            raise FileExistsError(
-                f'Directory not found: {self.model_outputs_dir}')
 
         config_fp = Path(config_fp)
         with open(config_fp, 'r') as f:
             c = safe_load(f)
-        
-        # Set and test directory holding network results
-        self.networks_subdir = c.get('network_subdirectory')
-        if self.networks_subdir is not None:
-            self.networks_subdir = \
-                self.model_outputs_dir / self.networks_subdir
-        
-        # Test subdirectory holding MicroSim results
-        self.microsim_subdir = c.get('microsim_subdirectory')
-        if self.microsim_subdir is not None:
-            self.microsim_subdir = \
-                self.model_outputs_dir / self.microsim_subdir
-        # MicroSim results files, within the microsim directory
-        self.microsim_filepaths = c.get('microsim_filenames')
 
-        # The demand directory holds auto and transit demand matrices
-        # by time period, and also the uses-TTC path-based analysis results.
-        self.demand_subdir = c.get('demand_subdirectory')
-        if self.demand_subdir is not None:
-            self.demand_subdir = \
-                self.model_outputs_dir / self.demand_subdir
-        
-        # The LOS directory holds cost and travel time matrices by time period.
-        # The station tranfer files are also stored here.
-        # Note that each time period has its own subdirectory.
-        self.los_subdirectory = c.get('los_subdirectory')   
-        if self.los_subdirectory is not None:
-            self.los_subdir = \
-                self.model_outputs_dir / self.los_subdirectory
+        if model_outputs_dir is None:
+            self.networks_subdir = None
+            self.microsim_subdir = None
+            self.demand_subdir = None
+            self.los_subdirectory = None
+        else:
+            self.model_outputs_dir = Path(model_outputs_dir)
+            if not self.model_outputs_dir.is_dir():
+                raise FileExistsError(
+                    f'Directory not found: {self.model_outputs_dir}')
+
+            # Set and test directory holding network results
+            self.networks_subdir = c.get('network_subdirectory')
+            if self.networks_subdir is not None:
+                self.networks_subdir = \
+                    self.model_outputs_dir / self.networks_subdir
+            
+            # Test subdirectory holding MicroSim results
+            self.microsim_subdir = c.get('microsim_subdirectory')
+            if self.microsim_subdir is not None:
+                self.microsim_subdir = \
+                    self.model_outputs_dir / self.microsim_subdir
+            # MicroSim results files, within the microsim directory
+            self.microsim_filepaths = c.get('microsim_filenames')
+
+            # The demand directory holds auto and transit demand matrices
+            # by time period, and also the uses-TTC path-based analysis results.
+            self.demand_subdir = c.get('demand_subdirectory')
+            if self.demand_subdir is not None:
+                self.demand_subdir = \
+                    self.model_outputs_dir / self.demand_subdir
+            
+            # The LOS directory holds cost and travel time matrices by time 
+            # period. The station tranfer files are also stored here.
+            # Note that each time period has its own subdirectory.
+            self.los_subdirectory = c.get('los_subdirectory')   
+            if self.los_subdirectory is not None:
+                self.los_subdir = \
+                    self.model_outputs_dir / self.los_subdirectory
 
         # Time period definitions
         # Can hold is_assigned flag, auto and transit peak-hr factors and start
