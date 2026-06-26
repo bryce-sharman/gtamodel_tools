@@ -44,5 +44,7 @@ for vehclass in ['TOT', 'CAR', 'BUS', 'TRK']:
         V_CNS[f'{vehclass}_PKHR_{tp}'] = f'v{vehclass.lower()}_{tp.lower()}pkhr'
     V_CNS[f'{vehclass}_WKDAY'] = f'v{vehclass.lower()}_weekday'
     V_CNS[f'{vehclass}_WKEND'] = f'v{vehclass.lower()}_weekend'
+# Add in the maximum count (total only)
+V_CNS['TOT_MAX15MIN'] = 'vtot_max15min'
 
 CNT_INDEX_COLS = [SOURCE_CN, STNID_CN, DIR_CN, DATE_CN]
