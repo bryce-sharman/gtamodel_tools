@@ -212,8 +212,10 @@ def read_turning_movement_counts_from_file(
     print('  Calculating time-period and peak-hour volumes')
     per = _calculate_period_volumes(cnts_wkday, 'PER')
     pkhr = _calculate_pkhr_volumes(cnts_wkday, 'PKHR')
+    print('  Calculating peak 15 minute volumes')
+    max15m = _calculate_max15min_volumes(cnts_long, 'MAX15MIN')
 
-    combined = pd.concat([wkday, wkend, per, pkhr], axis=1) 
+    combined = pd.concat([wkday, wkend, per, pkhr, max15m], axis=1) 
     final_cnts = _finalize_counts_table(combined, intsc_stn_df)
     return stns, final_cnts
 
@@ -655,7 +657,7 @@ def _calculate_daily_volumes(
         cnts: pd.DataFrame,
         colname_description: str
     ) -> pd.DataFrame:
-    """ Calculate the daily_volume for inbound traffic to intersections.
+    """ Calculate the daily_volume to and from intersections.
         
     Will return a NaN if count information is not available for all 24 hours
     of the day.
@@ -684,6 +686,74 @@ def _calculate_daily_volumes(
     dly_cnts_out = _calculate_daily_volumes_inner(
         cnts, index_out_cns, OUT_CN, colname_description)
     return pd.concat([dly_cnts_in, dly_cnts_out])
+
+
+def _calculate_max15min_volumes_inner(
+        cnts: pd.DataFrame, 
+        index_cols: list[str], 
+        direction: str, 
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Direction based daily count volumes """
+    rename_dict = {
+        en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
+        VOLUME_CN: colname_description,
+        APPROACH_CN: en_ttmc.LEG_DIR_CN,
+        DEPARTURE_CN: en_ttmc.LEG_DIR_CN
+    }
+    
+    # Sum daily counts and number of observations
+    dly_cnts = cnts.groupby(index_cols)[VOLUME_CN].max()
+    dly_cnts = dly_cnts.reset_index()
+    # add the in-out direction
+    dly_cnts[INOUT_CN] = direction   
+    # rename to intersection column names
+    dly_cnts = dly_cnts.rename(rename_dict, axis=1)
+    # Unstack by mode, then calculate total volume
+    # Then put into the form '{MODE}_{provided description}_
+    dly_cnts = dly_cnts.set_index(COUNTS_INDEX)
+    f = pd.DataFrame(dly_cnts.unstack(MODE_CN))
+    columns = f.columns
+    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
+    # Only keep the Total columns
+    f = f.drop(columns, axis=1)
+    f.columns = f.columns.swaplevel()
+    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
+    return f
+
+
+def _calculate_max15min_volumes(
+        cnts: pd.DataFrame,
+        colname_description: str
+    ) -> pd.DataFrame:
+    """ Calculate the maximum 15-minute count volumes to and from intersections.
+    
+    Args:
+        cnts: 
+            Turning movement volumes in long (melted) format.
+        colname_description: 
+            final name, will be appended with the mode to create 
+            the final column name.
+    Returns:
+        pandas.DataFrame
+            Counts by intersection approach leg
+             Index is ['centreline_id', 'leg', 'in-out', 'date']
+             Columns are volumes by mode. For example, if
+             e.g. if colname_description is 'WKDAY, columns will be
+            'CAR_WKDAY', 'BUS_WKDAY', 'TRK_WKDAY', 'TOT_WKDAY'
+
+    """
+    print('In _calculate_max15min_volumes')
+    index_in_cns = [
+        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, MODE_CN]
+    index_out_cns = [
+        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, MODE_CN]
+    cnts_in = _calculate_max15min_volumes_inner(
+        cnts, index_in_cns, IN_CN, colname_description)
+    cnts_out = _calculate_max15min_volumes_inner(
+        cnts, index_out_cns, OUT_CN, colname_description)
+    final = pd.concat([cnts_in, cnts_out])
+    return final
 
 
 def _calculate_period_volumes_inner(

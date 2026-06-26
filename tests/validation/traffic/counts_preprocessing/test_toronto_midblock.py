@@ -51,19 +51,22 @@ def ref_cnts_stn_1143576() -> pd.DataFrame:
         columns=[
             'vtot_amper', 'vtot_ampkhr', 'vtot_mdper', 'vtot_mdpkhr', 
             'vtot_pmper', 'vtot_pmpkhr', 'vtot_evper', 'vtot_evpkhr', 
-            'vtot_onper', 'vtot_onpkhr', 'vtot_weekday', 'vtot_weekend'
+            'vtot_onper', 'vtot_onpkhr', 'vtot_weekday', 'vtot_weekend',
+            'vtot_max15min'
         ],
         data=[
-            [674, 319, 2301, 440, 2228, 632, 1729, 447, 659, 182, 7591, nan],
-            [647, 314, 2302, 476, 2277, 672, 1756, 409, 636, 194, 7618, nan],
-            [701, 323, 2194, 445, 2183, 635, 1899, 453, 621, 160, 7598, nan],
-            [700, 308, 2354, 484, 2391, 710, 1791, 421, 737, 212, 7973, nan],
-            [674, 305, 2369, 453, 2225, 680, 2098, 480, 846, 206, 8212, nan],
-            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan, 10110],
-            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan,  9226],
+            [674, 319, 2301, 440, 2228, 632, 1729, 447, 659, 182, 7591, nan, 168],
+            [647, 314, 2302, 476, 2277, 672, 1756, 409, 636, 194, 7618, nan, 193],
+            [701, 323, 2194, 445, 2183, 635, 1899, 453, 621, 160, 7598, nan, 174],
+            [700, 308, 2354, 484, 2391, 710, 1791, 421, 737, 212, 7973, nan, 204],
+            [674, 305, 2369, 453, 2225, 680, 2098, 480, 846, 206, 8212, nan, 177],
+            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan, 10110, 171],
+            [nan, nan,  nan, nan,  nan, nan,  nan, nan, nan, nan,  nan,  9226, 167],
         ],
         dtype=np.float32
     )
+
+
 
 
 def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
@@ -96,6 +99,7 @@ def test_toronto_midblock_volume_only_1cnt(
 
     check_midblock_1station(stns, ref_df, tcl_midblock, stn_id)
     # Limit test test to one station and totals-only columns
+
     cnts = pd.DataFrame(
         cnts.loc[idx[:, str(stn_id), :, :], ref_cnts_stn_1143576.columns]
     )
