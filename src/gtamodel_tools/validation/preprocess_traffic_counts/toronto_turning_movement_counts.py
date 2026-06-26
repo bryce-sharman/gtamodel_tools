@@ -516,6 +516,7 @@ def _identify_intersection_stations(
     # (source-intersection-leg-inout) and station (source-centreline-direction)
     print('    Identifying count stations from intersection in/out legs')
     gdf2[en_tfc.SOURCE_CN] = en_ttmc.SOURCE
+    gdf2[en_tfc.STNID_CN] = gdf2[en_tfc.STNID_CN].astype(str)
     stns = gdf2.groupby(
         [en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN])[[
             en_tfc.STN_LAT_CN, en_tfc.STN_LON_CN, 
@@ -976,6 +977,7 @@ def _finalize_counts_table(
         right_index=True,
         suffixes=['', '_dup']
     )
+    df2[en_tfc.STNID_CN] = df2[en_tfc.STNID_CN].astype(str)
     df2 = df2.set_index([
         en_tfc.SOURCE_CN, en_tfc.STNID_CN, en_tfc.DIR_CN, en_tfc.DATE_CN])
     df2 = df2.rename(en_tfc.V_CNS, axis=1)
