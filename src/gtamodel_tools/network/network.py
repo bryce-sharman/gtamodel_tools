@@ -58,6 +58,7 @@ class Network(object):
     def __init__(
             self, 
             config: Config, 
+            *,
             start_time: int|None=None, 
             end_time: int|None=None,
             auto_phf: float|None=None,
