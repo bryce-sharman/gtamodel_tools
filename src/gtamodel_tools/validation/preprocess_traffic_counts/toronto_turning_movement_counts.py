@@ -7,6 +7,7 @@ with columns such as:
 
 """
 
+from copy import copy
 import geopandas as gpd
 import numpy as np
 from os import PathLike
@@ -166,7 +167,10 @@ def read_turning_movement_counts_from_file(
     # denoted by centreline_type = 2.
     c_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_CENTERLINE]
     i_cnts = cnts.loc[cnts[en_ttmc.CNTTYPE_CN] == en_ttmc.TYPE_INTERSECTION]
-    i_cnts = i_cnts.loc[~i_cnts[en_ttmc.CNTRLNID_CN].isin(drop_intersections)]
+    if drop_intersections is not None:
+        i_cnts = i_cnts.loc[
+            ~i_cnts[en_ttmc.CNTRLNID_CN].isin(drop_intersections)
+        ]
     print(f'    {len(c_cnts)} count records are referenced by centreline. ')
     print(f'    {len(i_cnts)} count records are referenced by intersection.')
 
@@ -691,35 +695,36 @@ def _calculate_daily_volumes(
 
 def _calculate_max15min_volumes_inner(
         cnts: pd.DataFrame, 
-        index_cols: list[str], 
-        direction: str, 
+        approach_or_departure: str,
+        in_or_out: str,
         colname_description: str
     ) -> pd.DataFrame:
     """ Direction based daily count volumes """
+
+    # Sum over approach or departure and all modes, by date and time period
+    index_cols = [
+        en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN, approach_or_departure, 
+        HR_START_CN, MIN_START_CN
+    ]
+    lcnts = cnts.groupby(index_cols)[[VOLUME_CN]].sum().reset_index()
+
+    # Find maximum count, by approach or departure and date
+    index_cols = [en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN, approach_or_departure] 
+    max_15min_cnt = lcnts.groupby(index_cols)[VOLUME_CN].max()
+    max_15min_cnt = max_15min_cnt.reset_index()
+    # add the in-out direction
+    max_15min_cnt[INOUT_CN] = in_or_out   
+    # rename to intersection column names
     rename_dict = {
         en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
-        VOLUME_CN: colname_description,
+        VOLUME_CN: 'TOT_MAX15MIN',
         APPROACH_CN: en_ttmc.LEG_DIR_CN,
         DEPARTURE_CN: en_ttmc.LEG_DIR_CN
     }
-    
-    # Sum daily counts and number of observations
-    dly_cnts = cnts.groupby(index_cols)[VOLUME_CN].max()
-    dly_cnts = dly_cnts.reset_index()
-    # add the in-out direction
-    dly_cnts[INOUT_CN] = direction   
-    # rename to intersection column names
-    dly_cnts = dly_cnts.rename(rename_dict, axis=1)
-    # Unstack by mode, then calculate total volume
-    # Then put into the form '{MODE}_{provided description}_
-    dly_cnts = dly_cnts.set_index(COUNTS_INDEX)
-    f = pd.DataFrame(dly_cnts.unstack(MODE_CN))
-    columns = f.columns
-    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
-    # Only keep the Total columns
-    f = f.drop(columns, axis=1)
-    f.columns = f.columns.swaplevel()
-    f.columns = ["_".join(c) for c in f.columns.to_flat_index()]
+    max_15min_cnt = max_15min_cnt.rename(rename_dict, axis=1)
+    index_cols = copy(COUNTS_INDEX)
+    index_cols.remove(MODE_CN)
+    f = max_15min_cnt.set_index(index_cols)
     return f
 
 
@@ -745,14 +750,11 @@ def _calculate_max15min_volumes(
 
     """
     print('In _calculate_max15min_volumes')
-    index_in_cns = [
-        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, MODE_CN]
-    index_out_cns = [
-        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, MODE_CN]
+
     cnts_in = _calculate_max15min_volumes_inner(
-        cnts, index_in_cns, IN_CN, colname_description)
+        cnts, APPROACH_CN, IN_CN, colname_description)
     cnts_out = _calculate_max15min_volumes_inner(
-        cnts, index_out_cns, OUT_CN, colname_description)
+        cnts, DEPARTURE_CN, OUT_CN, colname_description)
     final = pd.concat([cnts_in, cnts_out])
     return final
 
@@ -847,15 +849,13 @@ def _calculate_period_volumes(
 
 def _calculate_pkhr_volumes_inner(
         cnts: pd.DataFrame,
-        index_cols: list[str],
-        direction: str,
+        approach_or_departure: str,
+        in_or_out: str,
         colname_description: str   
     ) -> pd.DataFrame:
     """ Direction-based peak-hour count volumes. """
     intp_cn = 'following_in_tp'
     id_cn = en_ttmc.ID_CN
-    tp_cn = TIMEPERIOD_CN
-    shift = RECORDS_PER_HOUR - 1
     rollingvolume_cn = VOLUME_CN + '_rs'
     rename_dict = {
         en_ttmc.CNTRLNID_CN: en_ttmc.INTSC_CN, 
@@ -863,46 +863,59 @@ def _calculate_pkhr_volumes_inner(
         APPROACH_CN: en_ttmc.LEG_DIR_CN,
         DEPARTURE_CN: en_ttmc.LEG_DIR_CN
     }
+
     # We're modifying cnts table, so make a copy
     cnts = cnts.copy()
     
+    # Sum to approach or departure leg by count interval. Keep other columns, 
+    # like time period and break column name for later filtering.
+    index_cols = [
+        id_cn, en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN, approach_or_departure, 
+        MODE_CN, HR_START_CN, MIN_START_CN, TIMEPERIOD_CN
+    ]
+    lcnts = cnts.groupby(index_cols)[[VOLUME_CN]].sum().reset_index()
+
+    # Add the total volume (sum for all modes)
+    index_cols.remove(MODE_CN)
+    lcnts_t = lcnts.groupby(index_cols)[[VOLUME_CN]].sum().reset_index()
+    lcnts_t[MODE_CN] = 'TOT'
+    lcnts = pd.concat([lcnts, lcnts_t], axis=0)
+
     # Mark records that have 3 successive counts from same station and
     # direction. (Given the Toronto midblock use hard-coded 15-minute count 
-    # intervals, the original interval + 3 more intervals gives an hour 
+    # interval`s`, the original interval + 3 more intervals gives an hour 
     # duration. Also look for breaks in the counts
-    cnts[intp_cn] = True
-    cnts.loc[cnts[id_cn] != cnts[id_cn].shift(-shift), intp_cn] = False
-    cnts.loc[cnts[tp_cn] != cnts[tp_cn].shift(-shift), intp_cn] = False
-
-    # Now look for a break in the counts in the 
-    # current, current+1 and current_2 positions. (current+3) is ok.
-    for i in [0, 1, 2]:
-        fltr = cnts['break_cn'].shift(-i)
-        fltr = fltr.fillna(False)
-        cnts.loc[fltr.to_numpy(), intp_cn] = False
+    lcnts[intp_cn] = True
+    for i in range(1, RECORDS_PER_HOUR):
+        for cn in [id_cn, en_tfc.DATE_CN, MODE_CN, TIMEPERIOD_CN, ]:
+            lcnts.loc[lcnts[cn] != lcnts[cn].shift(-i), intp_cn] = False
 
     # Rolling sum to hourly volumes -- the sum will be incorrect where the has 
     # following flag is False. This is okay as those will be filtered out in 
     # the next step
     indexer = pd.api.indexers.FixedForwardWindowIndexer(
         window_size=RECORDS_PER_HOUR)
-    cnts[rollingvolume_cn] = cnts[VOLUME_CN].rolling(window=indexer).sum()
+    lcnts[rollingvolume_cn] = lcnts[
+        VOLUME_CN].rolling(window=indexer).sum()
     # Filter by has following counts flag
-    cnts.loc[~cnts[intp_cn], rollingvolume_cn] = np.nan
+    lcnts.loc[~lcnts[intp_cn], rollingvolume_cn] = np.nan
 
     # Find the maximum rolling volume for each time period,
     # this is our peak-hour volume
-    pkhr_df = cnts.groupby(index_cols)[[rollingvolume_cn]].max()
-    pkhr_df = pkhr_df.reset_index()
+    index_cols = [
+        id_cn, en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN, approach_or_departure, 
+        MODE_CN, TIMEPERIOD_CN
+    ]
+    pkhr_df = lcnts.groupby(index_cols)[[rollingvolume_cn]].max().reset_index()
+
     # add the in-out direction
-    pkhr_df[INOUT_CN] = direction
+    pkhr_df[INOUT_CN] = in_or_out
     # rename to intersection column names
     pkhr_df = pkhr_df.rename(rename_dict, axis=1)
-    
-    # Unstack by mode, then calculate total volume for the time period
+
+    # Unstack by mode
     pkhr_df = pkhr_df.set_index(COUNTS_INDEX + [TIMEPERIOD_CN])
     f = pd.DataFrame(pkhr_df.unstack(MODE_CN)) 
-    f[(colname_description, 'TOT')] = f.sum(axis=1, skipna=False)
     f.columns.names = ['label', MODE_CN]
 
     # Now unstack the time period, then swap column levels to
@@ -936,31 +949,18 @@ def _calculate_pkhr_volumes(
     Assumes a rolling window of 60 minutes composed of consecutive intervals.
     For 15-minute data, this is 4 intervals.
     """
-    index_in_cns = [
-        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, 
-        MODE_CN, TIMEPERIOD_CN]
-    index_out_cns = [
-        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN,
-        MODE_CN, TIMEPERIOD_CN]
 
-    # Really need to ensure that the counts are sorted properly so that
+    # Need to ensure that the counts are sorted properly so that
     # can add counts from subsequent records togther
     cnts = cnts.sort_values(
         [en_ttmc.ID_CN, en_tfc.DATE_CN, MODE_CN, 
          APPROACH_CN, TURN_CN, en_ttmc.STTIME_CN]
     )
-    # Flag breaks in the counts
-    cnts['break_cn'] = False
-    st_cn = en_ttmc.STTIME_CN
-    cnts.loc[
-        (cnts[st_cn].shift(-1) - cnts[st_cn]).dt.seconds != INTERVAL_SECS,
-        'break_cn'
-    ] = True
-    
+
     pkhr_cnts_in = _calculate_pkhr_volumes_inner(
-        cnts, index_in_cns, IN_CN, colname_description)
+        cnts, APPROACH_CN, IN_CN, colname_description)
     pkhr_cnts_out = _calculate_pkhr_volumes_inner(
-        cnts, index_out_cns, OUT_CN, colname_description)
+        cnts, DEPARTURE_CN, OUT_CN, colname_description)
     return pd.concat([pkhr_cnts_in, pkhr_cnts_out])
 
 
