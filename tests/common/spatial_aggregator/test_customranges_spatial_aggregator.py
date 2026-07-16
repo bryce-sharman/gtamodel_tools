@@ -115,8 +115,6 @@ def test_sa_customranges_zones(sa_customranges_zones, sa_1lvl_zones):
 
 
 def test_sa_customranges_zones_str(sa_customranges_zones_str, sa_1lvl_zones_str):
-    print(sa_customranges_zones_str)
-    print(sa_1lvl_zones_str)
     tm.assert_series_equal(
         sa_customranges_zones_str.mapping, 
         sa_1lvl_zones_str.mapping, 

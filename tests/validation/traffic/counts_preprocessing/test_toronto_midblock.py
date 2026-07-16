@@ -11,7 +11,7 @@ import pytest
 from gtamodel_tools.common.gis import calculate_direction, find_ls_vertex_by_index
 import gtamodel_tools.common.tcl as gis_tcl
 from gtamodel_tools.validation.preprocess_traffic_counts.toronto_midblock_counts \
-    import read_midblock_counts, read_midblock_volume_counts, \
+    import read_midblock_volume_counts, \
         read_midblock_speedvolume_counts, read_midblock_classvolume_counts
 
 from gtamodel_tools.enums.common import TIME_PERIODS as TPS
@@ -22,13 +22,13 @@ nan = np.nan
 
 
 @pytest.fixture
-def tcl_midblock_path(testdata_path) -> Path:
+def to_midblock_path(testdata_path) -> Path:
     return testdata_path / 'Counts' / 'Toronto_midblock_counts'
 
 
 @pytest.fixture
-def tcl_midblock(tcl_midblock_path) -> gpd.GeoDataFrame:
-    fp = tcl_midblock_path / 'tcl_trimmed_testmidblock_counts.gpkg'
+def tcl_midblock(to_midblock_path) -> gpd.GeoDataFrame:
+    fp = to_midblock_path / 'tcl_trimmed_testmidblock_counts.gpkg'
     return gis_tcl.read_tcl(fp, include_direction_fields=True)
 
 
@@ -91,8 +91,8 @@ def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
 
 
 def test_toronto_midblock_volume_only_1cnt(
-        tcl_midblock_path, tcl_midblock, ref_cnts_stn_1143576):
-    fp = tcl_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
+        to_midblock_path, tcl_midblock, ref_cnts_stn_1143576):
+    fp = to_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
     ref_df = pd.read_csv(fp)
     stns, cnts = read_midblock_volume_counts(fp, tcl_midblock)
     stn_id = 1143576
@@ -106,8 +106,8 @@ def test_toronto_midblock_volume_only_1cnt(
     tm.assert_frame_equal(cnts, ref_cnts_stn_1143576)
 
 
-def test_toronto_midblock_volume_only(tcl_midblock_path, tcl_midblock):
-    fp = tcl_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
+def test_toronto_midblock_volume_only(to_midblock_path, tcl_midblock):
+    fp = to_midblock_path / 'svc_raw_data_volume_2015_2019.csv_trimmed.csv'
     ref_df = pd.read_csv(fp)
     stn_ids = np.sort(ref_df['centreline_id'].unique())
     stns, cnts = read_midblock_volume_counts(fp, tcl_midblock)

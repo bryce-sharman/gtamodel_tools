@@ -170,5 +170,4 @@ def test_summarize_linkattrs_segmentlinkclass_1(am_auto_network):
     )
     links = am_auto_network.links.copy()
     ref_result = links.groupby('link_class')['length'].sum()
-    print(test_result)
     assert np.allclose(test_result, ref_result)

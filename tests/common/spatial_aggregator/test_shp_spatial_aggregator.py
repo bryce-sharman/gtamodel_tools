@@ -100,8 +100,6 @@ def test_sa_shpfile_regnodes(sa_shpfile_regnodes, sa_1lvl_regnodes):
 
 
 def test_sa_shpfile_regnodes_str(sa_shpfile_regnodes_str, sa_1lvl_regnodes_str):
-    print(sa_shpfile_regnodes_str.mapping)
-    print(sa_1lvl_regnodes_str.mapping)
     tm.assert_series_equal(
         sa_shpfile_regnodes_str.mapping, 
         sa_1lvl_regnodes_str.mapping, 
