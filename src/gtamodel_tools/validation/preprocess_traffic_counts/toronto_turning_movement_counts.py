@@ -41,12 +41,6 @@ TURN_CN = 'turn'
 DEPARTURE_CN = 'departure'
 VOLUME_CN = 'volume'
 
-TURN_TO_DEPARTURE = {
-    "n": {"l": "e", "t": "s", "r": "w"},
-    "s": {"l": "w", "t": "n", "r": "e"},
-    "e": {"l": "s", "t": "w", "r": "n"},
-    "w": {"l": "n", "t": "e", "r": "s"},
-}
 DIR_LABELS = {"n": "north", "s": "south", "e": "east", "w": "west"}
 
 INTERVAL_MINS = 15
@@ -290,13 +284,12 @@ def _merge_tcl_geometries(
     TO_CN = en_tcl.TCL_TO_INTSC
     FR_ODIR_CN = '_from_oppdir_'
     TO_ODIR_CN = '_to_oppdir_'
-    FT_ODIR_CN = '_fromto_oppdir_'
     GEOM_CN = en_cmn.GPD_GEOM_COL
     
     # Merge in the geometry, from_intersection and to_intersection columns
     # from TCL centreline
     intsc_legs = intsc_legs.merge(
-            tcl_gdf[[FR_CN, TO_CN, LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR, GEOM_CN]], 
+            tcl_gdf[[FR_CN, TO_CN, LS_FROM_DIR, LS_TO_DIR, GEOM_CN]], 
             left_on=en_ttmc.LEG_CNTRLN_CN, 
             right_index=True
     )
@@ -312,26 +305,25 @@ def _merge_tcl_geometries(
     gdf = gdf.to_crs(en_cmn.COT_CRS) # Need a projected CRS
     gdf[FR_ODIR_CN] = gdf[LS_FROM_DIR].map(en_cmn.OPPOSITE_DIR)
     gdf[TO_ODIR_CN] = gdf[LS_TO_DIR].map(en_cmn.OPPOSITE_DIR)
-    gdf[FT_ODIR_CN] = gdf[LS_FT_DIR].map(en_cmn.OPPOSITE_DIR)
 
     fltr_oppdir = pd.Series(False, index=gdf.index)
     fltr_oppdir.loc[
-            (gdf[en_ttmc.INTSC_CN]==gdf[en_tcl.TCL_FROM_INTSC]) & 
+            (gdf[en_ttmc.INTSC_CN]==gdf[FR_CN]) & 
             (gdf[DIR_CN]==gdf[FR_ODIR_CN])
         ] = True
     fltr_oppdir.loc[(
-            gdf[en_ttmc.INTSC_CN]==gdf[en_tcl.TCL_TO_INTSC]) & (
+            gdf[en_ttmc.INTSC_CN]==gdf[TO_CN]) & (
             gdf[DIR_CN]==gdf[TO_ODIR_CN])
         ] = True
 
     fltr_crossdir = pd.Series(False, index=gdf.index)
     fltr_crossdir.loc[
-            (gdf[en_ttmc.INTSC_CN]==gdf[en_tcl.TCL_FROM_INTSC]) & (
+            (gdf[en_ttmc.INTSC_CN]==gdf[FR_CN]) & (
             gdf[DIR_CN]!=gdf[LS_FROM_DIR]) & (
             gdf[DIR_CN]!=gdf[FR_ODIR_CN])
         ] = True
     fltr_crossdir.loc[
-            (gdf[en_ttmc.INTSC_CN]==gdf[en_tcl.TCL_TO_INTSC]) & (
+            (gdf[en_ttmc.INTSC_CN]==gdf[TO_CN]) & (
             gdf[DIR_CN]!=gdf[LS_TO_DIR]) & (
             gdf[DIR_CN]!=gdf[TO_ODIR_CN])
         ] = True
@@ -340,19 +332,10 @@ def _merge_tcl_geometries(
     # of the count direction. Can't swap out geometry on the GeoDataFrame, 
     # instead operates on a new series and then used GeoDataFrame.set_geometry 
     # to alter geometry on the dataframe.
-    # Because we're switching direction, also need to switch the FROM and TO
-    # intersections.
-    # 1. switch the geometry
     geometry = gdf.geometry
     switched_geometry = geometry.loc[fltr_oppdir].reverse()
     geometry.loc[fltr_oppdir] = switched_geometry
     gdf = gdf.set_geometry(geometry)
-    # 2. switch the from and to intersections
-    from_intsc = gdf.loc[fltr_oppdir, FR_CN]
-    gdf.loc[fltr_oppdir, FR_CN] = gdf.loc[fltr_oppdir, TO_CN]
-    gdf.loc[fltr_oppdir, TO_CN] = from_intsc
-    # 3. switch the link-level from-to coordinate
-    gdf.loc[fltr_oppdir, LS_FT_DIR] = gdf.loc[fltr_oppdir, FT_ODIR_CN]
 
     # Print and drop cross-direction count locations
     n_cross_dir_stns = fltr_crossdir.sum()
@@ -377,14 +360,8 @@ def _merge_tcl_geometries(
         gdf_index_to_drop = gdf.loc[fltr_crossdir].index
         gdf = gdf.drop(gdf_index_to_drop, axis=0)
 
-    # Note that the count direction from an intersection is not necessarily a
-    # reflection of the orientation of the line, but may be a best fit as to
-    # where the road lies in an intersection. Hence swap out the direction 
-    # with the line from-to direction
-    gdf[DIR_CN] = gdf[LS_FT_DIR]
-
     return gdf.drop(
-        [LS_FROM_DIR, LS_TO_DIR, LS_FT_DIR, FR_ODIR_CN, TO_ODIR_CN, FT_ODIR_CN], 
+        [LS_FROM_DIR, LS_TO_DIR, FR_ODIR_CN, TO_ODIR_CN, FR_CN, TO_CN], 
         axis=1
     )
 
@@ -555,7 +532,7 @@ def _process_count_times(cnts: pd.DataFrame) -> pd.DataFrame:
     cnts[en_ttmc.ENDTIME_CN] = pd.to_datetime(
         cnts[en_ttmc.ENDTIME_CN], format=en_ttmc.TIME_FORMAT)
     
-    # Check that the interval is the expected 15 minutes
+    # Drop when interval is not the expected 15-minutes
     intvl = (cnts[en_ttmc.ENDTIME_CN] - cnts[en_ttmc.STTIME_CN]).dt.seconds
     correct_intvl = intvl == INTERVAL_MINS * 60
     cnts = cnts.loc[correct_intvl]
@@ -587,38 +564,27 @@ def _parse_mode_approach_departure_directions(
     cnts_l = cnts_l.drop("appr", axis=1)
     # Find departure direction from inbound direction and turn
     cnts_l[DEPARTURE_CN] = ''
-    for approach, turn_dirs in TURN_TO_DEPARTURE.items():
-        fltr_approach = cnts_l[APPROACH_CN] == approach
-        for turn_dir, dep_dir in turn_dirs.items():
-            fltr_turndir = cnts_l[TURN_CN] == turn_dir
+    turn_to_departure = {
+        "n": {"l": "e", "t": "s", "r": "w"},
+        "s": {"l": "w", "t": "n", "r": "e"},
+        "e": {"l": "s", "t": "w", "r": "n"},
+        "w": {"l": "n", "t": "e", "r": "s"},
+    }
+    for app_dir, turn_to_dep in turn_to_departure.items():
+        fltr_approach = cnts_l[APPROACH_CN] == app_dir
+        for turn, dep_dir in turn_to_dep.items():
+            fltr_turndir = cnts_l[TURN_CN] == turn
             cnts_l.loc[fltr_approach & fltr_turndir, DEPARTURE_CN] = dep_dir
     cnts_l[APPROACH_CN] = cnts_l[APPROACH_CN].map(DIR_LABELS)
     cnts_l[DEPARTURE_CN] = cnts_l[DEPARTURE_CN].map(DIR_LABELS)
     cnts_l[MODE_CN] = cnts_l[MODE_CN].map(TMC_MODE_MAPPING)
-    _validate_unique_turns(cnts_l)
     return cnts_l
-
-
-def _validate_unique_turns(cnts: pd.DataFrame) -> None:
-    grpby_cns_in = [en_ttmc.CNTRLNID_CN, APPROACH_CN]
-    grpby_cns_out = [en_ttmc.CNTRLNID_CN, DEPARTURE_CN]
-    n_unique_turns = cnts.groupby(grpby_cns_in)[TURN_CN].nunique().unique()
-    if n_unique_turns != [3]:
-        raise RuntimeError(
-            'Intersections exist where number turns from a leg  is not 3. ' \
-            'Look into this.')
-    cnts = cnts.loc[cnts[DEPARTURE_CN] != ''].copy()
-    n_unique_turns = cnts.groupby(grpby_cns_out)[TURN_CN].nunique().unique()
-    if n_unique_turns != [3]:
-        raise RuntimeError(
-            'Intersections exist where number turns to a leg  is not 3. ' \
-            'Look into this.')    
 
 
 def _calculate_daily_volumes_inner(
         cnts: pd.DataFrame, 
-        index_cols: list[str], 
-        direction: str, 
+        approach_or_departure: str,
+        in_or_out: str,
         colname_description: str
     ) -> pd.DataFrame:
     """ Direction based daily count volumes """
@@ -634,9 +600,16 @@ def _calculate_daily_volumes_inner(
         APPROACH_CN: en_ttmc.LEG_DIR_CN,
         DEPARTURE_CN: en_ttmc.LEG_DIR_CN
     }
-    
+
+    index_cols_by_mode = [
+        en_ttmc.CNTRLNID_CN, approach_or_departure, en_tfc.DATE_CN, MODE_CN]
+    # To find the total volume, just do a groupby summing over all modes
+    index_cols_total = [
+        en_ttmc.CNTRLNID_CN, approach_or_departure, en_tfc.DATE_CN]
+
+
     # Sum daily counts and number of observations
-    dly_cnts = cnts.groupby(index_cols).agg(agg_funcs)
+    dly_cnts = cnts.groupby(index_cols_by_mode).agg(agg_funcs)
     dly_cnts.columns = [n_records_cn, VOLUME_CN]
     # Filter observations that don't span the whole day
     dly_cnts.loc[dly_cnts[n_records_cn] < exp_ncnts, VOLUME_CN] = np.nan
@@ -644,7 +617,7 @@ def _calculate_daily_volumes_inner(
     dly_cnts = dly_cnts.drop([n_records_cn], axis=1)
     dly_cnts = dly_cnts.reset_index()
     # add the in-out direction
-    dly_cnts[INOUT_CN] = direction   
+    dly_cnts[INOUT_CN] = in_or_out   
     # rename to intersection column names
     dly_cnts = dly_cnts.rename(rename_dict, axis=1)
 
@@ -682,14 +655,10 @@ def _calculate_daily_volumes(
             'CAR_WKDAY', 'BUS_WKDAY', 'TRK_WKDAY', 'TOT_WKDAY'
 
     """
-    index_in_cns = [
-        en_ttmc.CNTRLNID_CN, APPROACH_CN, en_tfc.DATE_CN, MODE_CN]
-    index_out_cns = [
-        en_ttmc.CNTRLNID_CN, DEPARTURE_CN, en_tfc.DATE_CN, MODE_CN]
     dly_cnts_in = _calculate_daily_volumes_inner(
-        cnts, index_in_cns, IN_CN, colname_description)
+        cnts, APPROACH_CN, IN_CN, colname_description)
     dly_cnts_out = _calculate_daily_volumes_inner(
-        cnts, index_out_cns, OUT_CN, colname_description)
+        cnts, DEPARTURE_CN, OUT_CN, colname_description)
     return pd.concat([dly_cnts_in, dly_cnts_out])
 
 

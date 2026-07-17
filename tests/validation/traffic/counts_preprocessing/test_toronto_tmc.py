@@ -56,16 +56,37 @@ def tcl_totmc_13465260(to_tmc_path) ->gpd.GeoDataFrame:
 
 
 @pytest.fixture
+def tcl_totmc_13464621(to_tmc_path) ->gpd.GeoDataFrame:
+    # Test TCL file for station 13465260 (Dufferin St / Bloor St W)
+    tcl_fp = to_tmc_path / 'tcl_testtmc_13464621.gpkg'
+    return gis_tcl.read_tcl(tcl_fp, include_direction_fields=True)
+
+
+@pytest.fixture
 def tmc_13465260_fp(to_tmc_path) -> gpd.GeoDataFrame:
-    # Test TMC file for station 13465260 (Dufferin St / Bloor St W)
+    # Test TMC filepath for station 13465260 (Dufferin St / Bloor St W)
     return to_tmc_path / "tmc_raw_data_2020_2029_13465260.csv"
+
+
+@pytest.fixture
+def tmc_13464621_fp(to_tmc_path) -> gpd.GeoDataFrame:
+    # Test TMC filepath for station 13465260 (Dufferin St / Bloor St W)
+    return to_tmc_path / "tmc_raw_data_2020_2029_13464621.csv"
+
 
 @pytest.fixture
 def tmc_13465260(tmc_13465260_fp) -> pd.DataFrame:
     # Test TMC file for station 13465260 (Dufferin St / Bloor St W)
     df = pd.read_csv(tmc_13465260_fp)
-    df.to_clipboard()
     return df
+
+
+@pytest.fixture
+def tmc_13464621(tmc_13464621_fp) -> pd.DataFrame:
+    # Test TMC file for station 13465260 (Dufferin St / Bloor St W)
+    df = pd.read_csv(tmc_13464621_fp)
+    return df
+
 
 @pytest.fixture
 def tcl_leg_dir_13465260_fp(to_tmc_path) -> Path:
@@ -73,12 +94,21 @@ def tcl_leg_dir_13465260_fp(to_tmc_path) -> Path:
     # (Dufferin St / Bloor St W)
     return to_tmc_path / 'centreline_leg_directions_13465260.csv'
 
+
+@pytest.fixture
+def tcl_leg_dir_13464621_fp(to_tmc_path) -> Path:
+    # Test intersection - leg direction file for station 13465260 
+    # (Dufferin St / Bloor St W)
+    return to_tmc_path / 'centreline_leg_directions_13464621.csv'
+
+
 @pytest.fixture
 def ref_cnts_13465260(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """ 
     Reference processed TMC counts for station 13465260 
-    (Dufferin St / Bloor St W). These have all been manually checked. """
+    (Dufferin St / Bloor St W). These have all been manually checked. 
+    """
 
     mi = pd.MultiIndex.from_arrays([
             ['TTMC'] * 24,
@@ -220,23 +250,115 @@ def ref_cnts_13465260(
     )
     return ref_tot, ref_car, ref_bus, ref_trk
 
+@pytest.fixture
+def ref_cnts_13464621(
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """ 
+    Reference processed TMC counts for station 13464621 
+    (Dupont St / Dundas St W). This is a count for which 24-hour counts are
+    recorded. These values have all been manually checked. 
+    """
+    mi = pd.MultiIndex.from_arrays([
+            ['TTMC'] * 6,
+            ['1143283']*2 + ['1143284']*2 + ['30140709']*2,
+            ['EB', 'WB', 'NB', 'SB', 'NB', 'SB'],
+            [date(2023,9,27)] * 6
+        ],
+        names=['source', 'station_id', 'direction', 'date']
+    )
+    ref_tot = pd.DataFrame(
+        index=mi,
+        columns=tot_cols,
+        dtype=np.float32,
+        data=[
+            [2098,806,4025,730,3029,791,2201,720,559,188,11912, nan, 214],
+            [1248,546,2984,577,2500,652,1840,479,492,153, 9064, nan, 175],
+            [1077,470,2588,514,2107,556,1583,411,419,129, 7774, nan, 149],
+            [1769,692,3231,590,2337,603,1768,586,465,166, 9570, nan, 175],
+            [ 354,192, 815,157, 707,204, 442,140,104, 27, 2422, nan,  62],
+            [ 196, 89, 417, 93, 408,118, 266, 77, 83, 24, 1370, nan,  34],
+
+        ]
+    )
+    ref_car = pd.DataFrame(
+        index=mi,
+        columns=car_cols,
+        dtype=np.float32,
+        data=[
+            [1987,760,3833,695,2972,770,2177,712,540,178, 11509,nan],
+            [1195,523,2817,549,2432,641,1815,475,477,151,  8736,nan],
+            [1029,451,2436,490,2047,543,1558,407,405,127,  7475,nan],
+            [1668,648,3067,560,2292,595,1751,578,451,158,  9229,nan],
+            [ 340,182, 785,150, 694,195, 435,138, 99, 26,  2353,nan],
+            [ 187, 83, 400, 90, 399,116, 266, 77, 82, 24,  1334,nan],
+
+        ]
+    )
+    ref_bus = pd.DataFrame(
+        index=mi,
+        columns=bus_cols,
+        dtype=np.float32,
+        data=[
+            [29,17,36,14,31,19,13,5,9,4,118,nan],
+            [17,11,32,12,21,13,15,4,8,4, 93,nan],
+            [15, 9,29,11,18,11,15,4,7,3, 84,nan],
+            [21,14,33,13,25,13,13,5,6,2, 98,nan],
+            [ 8, 8, 3, 1, 6, 6,	0,0,3,2, 20,nan],
+            [ 2, 2, 3, 2, 3, 2,	0,0,1,1,  9,nan],
+
+        ]
+    )
+    ref_trk = pd.DataFrame(
+        index=mi,
+        columns=trk_cols,
+        dtype=np.float32,
+        data=[
+            [82,40,156,35,26,10,11,6,10,6,285,nan],
+            [36,19,135,39,47,15,10,4, 7,4,235,nan],
+            [33,18,123,37,42,14,10,4, 7,4,215,nan],
+            [80,40,131,29,20, 7, 4,4, 8,6,243,nan],
+            [ 6, 4, 27, 8, 7, 4, 7,3, 2,1, 49,nan],
+            [ 7, 4, 14, 5, 6, 3, 0,0, 0,0, 27,nan],
+
+        ]
+    )
+    return ref_tot, ref_car, ref_bus, ref_trk
+
 
 def test_toronto_tmc_13465260(
         tmc_13465260_fp, tcl_leg_dir_13465260_fp, tcl_totmc_13465260,
         ref_cnts_13465260
     ):
-    
     stns, cnts = read_turning_movement_counts_from_file(
          tmc_13465260_fp, tcl_leg_dir_13465260_fp, tcl_totmc_13465260)
     cnts=cnts.sort_index()
 
     # Don't check the stations for now, a lot of work with less current benefit 
     # than checking the counts.
-
     ref_tot = ref_cnts_13465260[0]
     ref_car = ref_cnts_13465260[1]
     ref_bus = ref_cnts_13465260[2]
     ref_trk = ref_cnts_13465260[3]
+    tm.assert_frame_equal(cnts[tot_cols], ref_tot, check_dtype=False)
+    tm.assert_frame_equal(cnts[car_cols], ref_car, check_dtype=False)
+    tm.assert_frame_equal(cnts[bus_cols], ref_bus, check_dtype=False)
+    tm.assert_frame_equal(cnts[trk_cols], ref_trk, check_dtype=False)
+
+
+def test_toronto_tmc_13464621(
+        tmc_13464621_fp, tcl_leg_dir_13464621_fp, tcl_totmc_13464621,
+        ref_cnts_13464621
+    ):
+    stns, cnts = read_turning_movement_counts_from_file(
+         tmc_13464621_fp, tcl_leg_dir_13464621_fp, tcl_totmc_13464621)
+    cnts=cnts.sort_index()
+
+    # Don't check the stations for now, a lot of work with less current benefit 
+    # than checking the counts.
+    ref_tot = ref_cnts_13464621[0]
+    ref_car = ref_cnts_13464621[1]
+    ref_bus = ref_cnts_13464621[2]
+    ref_trk = ref_cnts_13464621[3]
     tm.assert_frame_equal(cnts[tot_cols], ref_tot, check_dtype=False)
     tm.assert_frame_equal(cnts[car_cols], ref_car, check_dtype=False)
     tm.assert_frame_equal(cnts[bus_cols], ref_bus, check_dtype=False)
