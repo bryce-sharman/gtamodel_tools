@@ -79,7 +79,6 @@ def test_summarize_vkt_dly(am_auto_network, pm_auto_network):
             'vkt') * am_auto_network.auto_phf + \
         pm_auto_network.summarize_link_attributes(
             'vkt') * pm_auto_network.auto_phf
-    print(test_result, ref_result)
     assert np.isclose(test_result, ref_result)
 
 
@@ -144,7 +143,6 @@ def test_summarize_vht_dly(am_auto_network, pm_auto_network):
             'vht') * am_auto_network.auto_phf + \
         pm_auto_network.summarize_link_attributes(
             'vht') * pm_auto_network.auto_phf
-    print(test_result, ref_result)
     assert np.isclose(test_result, ref_result)
 
 
