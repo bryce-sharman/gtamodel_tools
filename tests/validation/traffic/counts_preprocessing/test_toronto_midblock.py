@@ -7,8 +7,10 @@ import pandas as pd
 import pandas.testing as tm
 from pathlib import Path
 import pytest
+from shapely import Point
 
-from gtamodel_tools.common.gis import calculate_direction, find_ls_vertex_by_index
+from gtamodel_tools.common.gis import calculate_direction, \
+    ensure_linestring
 import gtamodel_tools.common.tcl as gis_tcl
 from gtamodel_tools.validation.preprocess_traffic_counts.toronto_midblock_counts \
     import read_midblock_volume_counts, \
@@ -73,7 +75,7 @@ def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
     stn = stns.loc[idx[:, str(stn_id), :], :].iloc[0]
     ref_df = ref_df.loc[ref_df['centreline_id'] == int(stn_id)].copy()
     first_row = ref_df.iloc[0]
-    ls = tcl_midblock.at[stn_id, 'geometry']
+    ls = ensure_linestring(tcl_midblock.at[stn_id, 'geometry'])
 
     assert np.isclose(stn['latitude'], first_row['latitude'])
     assert np.isclose(stn['longitude'], first_row['longitude'])
@@ -81,13 +83,13 @@ def check_midblock_1station(stns, ref_df, tcl_midblock, stn_id):
 
     # Check the geometry
     stn_dir = stn.name[2]
-    first_pt = find_ls_vertex_by_index(ls, 0)
-    last_pt = find_ls_vertex_by_index(ls, -1)
+    first_pt = Point(ls.coords[0][0], ls.coords[0][1])
+    last_pt = Point(ls.coords[-1][0], ls.coords[-1][1])
     ft_dir = calculate_direction(first_pt, last_pt, 17)
     if ft_dir == stn_dir:
-        assert stn['geometry'] == ls
+        assert ensure_linestring(stn['geometry']) == ls
     else:
-        assert stn['geometry'] == ls.reverse()
+        assert ensure_linestring(stn['geometry']) == ls.reverse()
 
 
 def test_toronto_midblock_volume_only_1cnt(

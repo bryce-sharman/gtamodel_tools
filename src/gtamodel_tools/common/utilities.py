@@ -17,3 +17,8 @@ def convert_mins_after_midnight_to_time(mins_after_midnight: int):
     hour = int(mins_after_midnight // 60)
     minute = int(mins_after_midnight - (60 * hour))
     return time(hour=hour, minute=minute)
+
+
+def unit_clamp(x: float) -> float:
+    """ Constrains x between 0 and 1. """
+    return max(0.0, min(1.0, x))
