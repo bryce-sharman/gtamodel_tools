@@ -199,13 +199,17 @@ def read_midblock_volume_counts(
         cnts_wkday,total_volume_cn,'TOT_PER_')
     pkhr_volumes = _calculate_peakhour_volumes(
         cnts_wkday, total_volume_cn, 'TOT_PKHR_')
+    pc95_15min_volumes = _calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_95TH15MIN', 0.95)
+    pc98_15min_volumes =_calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_98TH15MIN', 0.98)
     max_15min_volumes = _calculate_max15min_volumes(
         cnts, total_volume_cn, 'TOT_MAX15MIN')
 
     # Completed all the parts, time to put it together
     f_cnts = pd.concat([
             wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes, 
-            max_15min_volumes
+            pc95_15min_volumes, pc98_15min_volumes, max_15min_volumes
         ], axis=1
     )
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
@@ -269,13 +273,18 @@ def read_midblock_speedvolume_counts(
         cnts_wkday, total_volume_cn, 'TOT_PER_')
     pkhr_volumes = _calculate_peakhour_volumes(
         cnts_wkday, total_volume_cn, 'TOT_PKHR_')
+    pc95_15min_volumes = _calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_95TH15MIN', 0.95)
+    pc98_15min_volumes =_calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_98TH15MIN', 0.98)
     max_15min_volumes = _calculate_max15min_volumes(
         cnts, total_volume_cn, 'TOT_MAX15MIN')
+
 
     # Completed all the parts, time to put it together
     f_cnts = pd.concat([
         wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes, 
-        max_15min_volumes
+        pc95_15min_volumes, pc98_15min_volumes, max_15min_volumes, 
         ], axis=1
     )
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
@@ -354,13 +363,17 @@ def read_midblock_classvolume_counts(
         all_cols, 
         ['CAR_PKHR_', 'BUS_PKHR_', 'TRK_PKHR_', 'TOT_PKHR_']
     )
+    pc95_15min_volumes = _calculate_pc15min_volumes(
+        cnts, ['TOT'], 'TOT_95TH15MIN', 0.95)
+    pc98_15min_volumes =_calculate_pc15min_volumes(
+        cnts, ['TOT'], 'TOT_98TH15MIN', 0.98)
     max_15min_volumes = _calculate_max15min_volumes(
         cnts, ['TOT'], 'TOT_MAX15MIN')
-
+    
     # Completed all the parts, time to put it together
     f_cnts = pd.concat([
         wkday_volumes, per_volumes, pkhr_volumes, wkend_volumes,
-        max_15min_volumes
+        pc95_15min_volumes, pc98_15min_volumes, max_15min_volumes
         ], axis=1
     )
     f_cnts = f_cnts.rename(en_tfc.V_CNS, axis=1)
@@ -743,3 +756,38 @@ def _calculate_max15min_volumes(
     max_volumes = cnts.groupby(grp_cns)[volume_columns].max()
     max_volumes.columns = colnames
     return max_volumes[colnames]
+
+
+def _calculate_pc15min_volumes(
+        cnts: pd.DataFrame, 
+        volume_columns: str | list[str],
+        colnames: str | list[str],
+        percentile: float
+    ) -> pd.DataFrame:
+    """ Finds percentile of 15-minute count by station and day.  
+    Args:
+        cnts: 
+            counts table with columns appended by summarize_by_count_dates
+        volume_columns: 
+            columns to total
+        colnames: 
+            final name for each column in 'volume_columns' input
+        percentile:
+            Percentile to calculate
+            
+    Returns:
+        pandas.DataFrame with peak-hour volumes.
+
+    """  
+    if not isinstance(volume_columns, list):
+        volume_columns = [volume_columns]
+    if not isinstance(colnames, list):
+        colnames = [colnames]
+    if len(volume_columns) != len(colnames):
+        raise ValueError(
+            'volume_columns and colnames must be the same length.')
+        
+    grp_cns = [en_tmblk.ID_CN, en_tmblk.DIR_CN, en_tfc.DATE_CN] 
+    pc = cnts.groupby(grp_cns)[volume_columns].quantile(percentile)
+    pc.columns = colnames
+    return pc[colnames]

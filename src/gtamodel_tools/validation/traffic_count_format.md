@@ -93,7 +93,10 @@ The combination of `source`, `station_id` and `direction` form a unique key to t
 | vtrk_onpkhr     | float(4)   | 
 | vtrk_weekday    | float(4)   | 
 | vtrk_weekend    | float(4)   | 
+| vtot_95th15min  | float(4)   | 95th percentile observed 15-minute count volume. Primarily used to assess road capacities. |
+| vtot_98th15min  | float(4)   | 98th percentile observed 15-minute count volume. Primarily used to assess road capacities. |
 | vtot_max15min   | float(4)   | Maximum observed 15-minute count volume. Primarily used to assess road capacities. |
+
 
 
 The combination of `source`, `station_id`, `direction` and `date` form a 
