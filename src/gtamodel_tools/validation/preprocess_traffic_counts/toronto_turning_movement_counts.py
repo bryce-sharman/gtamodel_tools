@@ -211,9 +211,12 @@ def read_turning_movement_counts_from_file(
     per = _calculate_period_volumes(cnts_wkday, 'PER')
     pkhr = _calculate_pkhr_volumes(cnts_wkday, 'PKHR')
     print('  Calculating peak 15 minute volumes')
-    max15m = _calculate_max15min_volumes(cnts_long, 'TOT_MAX15MIN')
+    pc9515m = _calculate_pc15min_volumes(cnts_long, 'TOT_95TH15MIN', 0.95)
+    pc9815m = _calculate_pc15min_volumes(cnts_long, 'TOT_98TH15MIN', 0.98)
+    max15m = _calculate_pc15min_volumes(cnts_long, 'TOT_MAX15MIN', 1.0)
 
-    combined = pd.concat([wkday, wkend, per, pkhr, max15m], axis=1) 
+    combined = pd.concat(
+        [wkday, wkend, per, pkhr, pc9515m, pc9815m, max15m], axis=1) 
     final_cnts = _finalize_counts_table(combined, intsc_stn_df)
     return stns, final_cnts
 
@@ -685,11 +688,12 @@ def _finalize_counts_table(
     return df2[en_tfc.V_CNS.values()]
 
 
-def _calculate_max15min_volumes_inner(
+def _calculate_pc15min_volumes_inner(
         cnts: pd.DataFrame, 
         approach_or_departure: str,
         in_or_out: str,
-        colname_desc: str
+        colname_desc: str,
+        percentile: float
     ) -> pd.DataFrame:
     """ Direction based daily count volumes """
     # Sum over approach or departure by date and time period over ALL MODES
@@ -698,13 +702,13 @@ def _calculate_max15min_volumes_inner(
             cnts, approach_or_departure, [HR_START_CN, MIN_START_CN], VOLUME_CN)
     # Find maximum count, by approach or departure, by date
     grpby2_cols = [en_ttmc.CNTRLNID_CN, en_tfc.DATE_CN, approach_or_departure]
-    max_15min_cnt = lcnts.groupby(level=grpby2_cols)[VOLUME_CN].max()
-    max_15min_cnt =_finalize_names(
-        max_15min_cnt, approach_or_departure, in_or_out, VOLUME_CN, colname_desc
+    pc = lcnts.groupby(level=grpby2_cols)[VOLUME_CN].quantile(percentile)
+    pc =_finalize_names(
+        pc, approach_or_departure, in_or_out, VOLUME_CN, colname_desc
     )
     index_cols = copy(COUNTS_INDEX)
     index_cols.remove(MODE_CN)  # Only keeping the total
-    return max_15min_cnt.set_index(index_cols)
+    return pc.set_index(index_cols)
 
 
 def _calculate_daily_volumes_inner(
@@ -847,17 +851,18 @@ def _calculate_daily_volumes(
     return pd.concat([dly_cnts_in, dly_cnts_out])
 
 
-def _calculate_max15min_volumes(
+def _calculate_pc15min_volumes(
         cnts: pd.DataFrame,
-        colname_description: str
+        colname_description: str,
+        percentile: float
     ) -> pd.DataFrame:
     """ 
-    Calculate the maximum 15-minute count volumes to and from intersections.
+    Calculate the percentile 15-minute count volumes to and from intersections.
     """
-    cnts_in = _calculate_max15min_volumes_inner(
-        cnts, APPROACH_CN, IN_CN, colname_description)
-    cnts_out = _calculate_max15min_volumes_inner(
-        cnts, DEPARTURE_CN, OUT_CN, colname_description)
+    cnts_in = _calculate_pc15min_volumes_inner(
+        cnts, APPROACH_CN, IN_CN, colname_description, percentile)
+    cnts_out = _calculate_pc15min_volumes_inner(
+        cnts, DEPARTURE_CN, OUT_CN, colname_description, percentile)
     return pd.concat([cnts_in, cnts_out])
 
 

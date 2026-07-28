@@ -203,8 +203,8 @@ def read_midblock_volume_counts(
         cnts, total_volume_cn, 'TOT_95TH15MIN', 0.95)
     pc98_15min_volumes =_calculate_pc15min_volumes(
         cnts, total_volume_cn, 'TOT_98TH15MIN', 0.98)
-    max_15min_volumes = _calculate_max15min_volumes(
-        cnts, total_volume_cn, 'TOT_MAX15MIN')
+    max_15min_volumes = _calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_MAX15MIN', 1.0)
 
     # Completed all the parts, time to put it together
     f_cnts = pd.concat([
@@ -277,8 +277,8 @@ def read_midblock_speedvolume_counts(
         cnts, total_volume_cn, 'TOT_95TH15MIN', 0.95)
     pc98_15min_volumes =_calculate_pc15min_volumes(
         cnts, total_volume_cn, 'TOT_98TH15MIN', 0.98)
-    max_15min_volumes = _calculate_max15min_volumes(
-        cnts, total_volume_cn, 'TOT_MAX15MIN')
+    max_15min_volumes = _calculate_pc15min_volumes(
+        cnts, total_volume_cn, 'TOT_MAX15MIN', 1.0)
 
 
     # Completed all the parts, time to put it together
@@ -367,8 +367,8 @@ def read_midblock_classvolume_counts(
         cnts, ['TOT'], 'TOT_95TH15MIN', 0.95)
     pc98_15min_volumes =_calculate_pc15min_volumes(
         cnts, ['TOT'], 'TOT_98TH15MIN', 0.98)
-    max_15min_volumes = _calculate_max15min_volumes(
-        cnts, ['TOT'], 'TOT_MAX15MIN')
+    max_15min_volumes = _calculate_pc15min_volumes(
+        cnts, ['TOT'], 'TOT_MAX15MIN', 1.0)
     
     # Completed all the parts, time to put it together
     f_cnts = pd.concat([
