@@ -279,8 +279,8 @@ def convert_angle_to_cartesian(angle: float) -> str:
     Returns:
         Cartesian direction
     """
-    if np.isnan(angle):
-        raise RuntimeError('Cannot convert NaN angle to cartesian coordinates.')
+    if np.isnan(angle): # this will occur in hypernetworks
+        return ''
     if 0 <= angle < 45 or 315 <= angle <= 360:
         return 'EB'
     elif 45 <= angle < 135:

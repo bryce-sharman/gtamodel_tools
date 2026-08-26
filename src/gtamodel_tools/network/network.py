@@ -133,7 +133,9 @@ class Network(object):
                 transit line extra attributes. To skip node transit line 
                 attribute imports, set to []. Default is None.
 
-        
+        Notes:
+            Note that transit segment extra attributes are current not imported.
+
         """
         if self.network_crs is None:
             raise RuntimeError(
